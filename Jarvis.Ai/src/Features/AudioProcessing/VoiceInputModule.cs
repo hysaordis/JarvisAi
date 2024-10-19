@@ -20,7 +20,6 @@ namespace Jarvis.Ai.Features.AudioProcessing
             {
                 WaveFormat = new WaveFormat(Constants.RATE, Constants.BIT, Constants.CHANNELS),
                 BufferMilliseconds = 1016,
-                DeviceNumber = 1,
             };
             _waveIn.DataAvailable += OnDataAvailable!;
             _jarvisLogger.LogInformation("AsyncMicrophone initialized");
@@ -29,7 +28,7 @@ namespace Jarvis.Ai.Features.AudioProcessing
         private void OnDataAvailable(object sender, WaveInEventArgs e)
         {
             _jarvisLogger.LogDebug($"OnDataAvailable called. Bytes recorded: {e.BytesRecorded}");
-            
+
             byte[] buffer = new byte[e.BytesRecorded];
             Array.Copy(e.Buffer, buffer, e.BytesRecorded);
             _audioQueue.Add(buffer);
