@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.11.35327.3
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Jarvis.Ai", "Jarvis.Ai\Jarvis.Ai.csproj", "{F135BEFA-11C1-407A-9A06-1C90B5806FB0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "iJarvis", "iJarvis\iJarvis.csproj", "{3D35F680-586C-4E30-9C96-113C4BA80B96}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F135BEFA-11C1-407A-9A06-1C90B5806FB0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F135BEFA-11C1-407A-9A06-1C90B5806FB0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F135BEFA-11C1-407A-9A06-1C90B5806FB0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F135BEFA-11C1-407A-9A06-1C90B5806FB0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3D35F680-586C-4E30-9C96-113C4BA80B96}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3D35F680-586C-4E30-9C96-113C4BA80B96}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3D35F680-586C-4E30-9C96-113C4BA80B96}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3D35F680-586C-4E30-9C96-113C4BA80B96}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {23817457-C5F9-4C94-BDFB-9B3F05D14E9F}
+	EndGlobalSection
+EndGlobal

@@ -1,0 +1,10 @@
+﻿{
+  "browser_urls": [
+    "https://hackernews.com",
+    "https://google.com",
+    "https://youtube.com",
+    "https://claude.ai/chat"
+  ],
+  "browser_command": "open -a 'Google Chrome'",
+  "human_name": "Ordis"
+}

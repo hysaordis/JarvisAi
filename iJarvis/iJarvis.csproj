@@ -1,0 +1,41 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net8.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <RootNamespace>Jarvis.Console</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\Jarvis.Ai\Jarvis.Ai.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <EditorConfigFiles Include="..\..\..\..\..\..\Program Files\dotnet\sdk\8.0.403\Sdks\Microsoft.NET.Sdk\analyzers\build\config\analysislevel_6_default.globalconfig">
+        <Link>config\analysislevel_6_default.globalconfig</Link>
+      </EditorConfigFiles>
+    </ItemGroup>
+
+    <ItemGroup>
+      <None Update="config\active_memory.json">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+      <None Update="config\personalization.json">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+      <None Update="appsettings.json">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
+      <None Update="appsettings.local.json">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+      <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.1" />
+    </ItemGroup>
+
+</Project>
