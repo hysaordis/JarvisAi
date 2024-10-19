@@ -333,3 +333,4 @@ FodyWeavers.xsd
 
 # Local appsettings file
 config/appsettings.local.json
+/iJarvis/appsettings.local.json
