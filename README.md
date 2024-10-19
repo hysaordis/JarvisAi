@@ -73,43 +73,80 @@ Interact with Jarvis.AI using the command-line interface. Use the `--prompts` fl
 
 ### CLI Examples
 
-1. Simple greeting:
-   ```
-   dotnet run --project iJarvis -- --prompts "Hello, how are you?"
+1. **Navigate to Project Directory**
+
+   Before running the commands, ensure you navigate to the **iJarvis** project directory. You can do this with the following command:
+
+   ```bash
+   cd iJarvis
    ```
 
-2. Multiple commands:
-   ```
-   dotnet run --project iJarvis -- --prompts "Command 1 | Command 2 | Command 3"
+   Now you can run the commands without specifying the project parameter. Here are the updated examples:
+
+2. **Simple Greeting**
+
+   ```bash
+   dotnet run -- --prompts "Hello, how are you?"
    ```
 
-3. Open a website:
-   ```
-   dotnet run --project iJarvis -- --prompts "Open Hacker News"
+3. **Multiple Commands**
+
+   ```bash
+   dotnet run -- --prompts "Command 1 | Command 2 | Command 3"
    ```
 
-4. Memory operations:
-   ```
-   dotnet run --project iJarvis -- --prompts "copy my current clipboard to memory"
-   dotnet run --project iJarvis -- --prompts "add to memory the key 'project_status' with the value 'in progress'"
-   dotnet run --project iJarvis -- --prompts "reset active memory"
+4. **Open a Website**
+
+   ```bash
+   dotnet run -- --prompts "Open Hacker News"
    ```
 
-5. File operations:
-   ```
-   dotnet run --project iJarvis -- --prompts "Create a new CSV file called user analytics with 10 mock rows."
-   dotnet run --project iJarvis -- --prompts "read file user analytics into memory"
+5. **Memory Operations**
+
+   - Copy current clipboard to memory:
+     
+     ```bash
+     dotnet run -- --prompts "copy my current clipboard to memory"
+     ```
+   
+   - Add a key-value pair to memory:
+     
+     ```bash
+     dotnet run -- --prompts "add to memory the key 'project_status' with the value 'in progress'"
+     ```
+   
+   - Reset active memory:
+     
+     ```bash
+     dotnet run -- --prompts "reset active memory"
+     ```
+
+6. **File Operations**
+
+   - Create a new CSV file:
+     
+     ```bash
+     dotnet run -- --prompts "Create a new CSV file called user analytics with 10 mock rows."
+     ```
+   
+   - Read a file into memory:
+     
+     ```bash
+     dotnet run -- --prompts "read file user analytics into memory"
+     ```
+
+7. **Web Scraping**
+
+   ```bash
+   dotnet run -- --prompts "scrape the URL from my clipboard and save it to a file"
    ```
 
-6. Web scraping:
-   ```
-   dotnet run --project iJarvis -- --prompts "scrape the URL from my clipboard and save it to a file"
+8. **Generating Diagrams**
+
+   ```bash
+   dotnet run -- --prompts "Generate a diagram outlining the architecture of a minimal TikTok clone"
    ```
 
-7. Generating diagrams:
-   ```
-   dotnet run --project iJarvis -- --prompts "Generate a diagram outlining the architecture of a minimal TikTok clone"
-   ```
 
 ## 🗣️ Voice Commands Examples
 
