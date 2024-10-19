@@ -44,6 +44,11 @@ Jarvis.AI is an AI assistant inspired by the AI from the Iron Man series. Built 
 - OpenAI API
 - JSON (data serialization/deserialization)
 
+## 🔗 Support Tools
+
+OpenAI and Claude were used for technical research and brainstorming, contributing to the development of the project's ideas and features.
+
+
 ## 🤖 Assistant Tools Overview
 
 Jarvis.AI includes various tools to enhance functionality:
