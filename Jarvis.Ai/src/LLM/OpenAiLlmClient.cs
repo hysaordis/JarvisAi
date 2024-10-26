@@ -1,4 +1,5 @@
-﻿using System.Reflection;
+﻿using System.Net.Http;
+using System.Reflection;
 using System.Text;
 using Jarvis.Ai.Common.Settings;
 using Jarvis.Ai.Interfaces;
@@ -6,8 +7,44 @@ using Jarvis.Ai.Models;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Serialization;
+using OllamaSharp.Models.Chat;
 
 namespace Jarvis.Ai.LLM;
+
+public class Message
+{
+    [JsonProperty("role")]
+    public string Role { get; set; }
+
+    [JsonProperty("content", NullValueHandling = NullValueHandling.Ignore)]
+    public string Content { get; set; }
+
+    [JsonProperty("tool_calls", NullValueHandling = NullValueHandling.Ignore)]
+    public List<FunctionCall> ToolCalls { get; set; }
+
+    [JsonProperty("tool_call_id", NullValueHandling = NullValueHandling.Ignore)]
+    public string ToolCallId { get; set; }
+}
+public class FunctionCall
+{
+    [JsonProperty("id")]
+    public string Id { get; set; }
+
+    [JsonProperty("type")]
+    public string Type { get; set; }
+
+    [JsonProperty("function")]
+    public FunctionDetail Function { get; set; }
+}
+
+public class FunctionDetail
+{
+    [JsonProperty("name")]
+    public string Name { get; set; }
+
+    [JsonProperty("arguments")]
+    public Dictionary<string, object> Arguments { get; set; }
+}
 
 public class OpenAiLlmClient : ILlmClient
 {
@@ -28,106 +65,47 @@ public class OpenAiLlmClient : ILlmClient
         _logger = logger;
     }
 
-    public async Task<ResponseMessage> SendCommandToLlmAsync(List<ResponseMessage> messages, CancellationToken cancellationToken)
+    public async Task<Message> SendCommandToLlmAsync(List<Message> conversationHistory, CancellationToken cancellationToken)
     {
         try
         {
+            CleanUpConversationHistory(conversationHistory);
+
             var ollamaTools = _starkArsenal.GetToolsForOllama();
             var openAiTools = ToolMapper.ConvertToOpenAiTools(ollamaTools);
 
-            var validMessages = new List<object>();
-
-            var messageGroups = new List<List<ResponseMessage>>();
-            var currentGroup = new List<ResponseMessage>();
-
-            foreach (var msg in messages)
+            var messages = conversationHistory.Select(msg =>
             {
-                if (msg.Role.ToLower() == "user" || msg.Role.ToLower() == "system")
+                var msgDict = new Dictionary<string, object>
                 {
-                    if (currentGroup.Any()) messageGroups.Add(currentGroup.ToList());
-                    currentGroup = new List<ResponseMessage> { msg };
-                }
-                else
-                {
-                    currentGroup.Add(msg);
-                }
-            }
-            if (currentGroup.Any()) messageGroups.Add(currentGroup);
+                    { "role", msg.Role }
+                };
 
-            foreach (var group in messageGroups)
-            {
-                var pendingToolCalls = new Dictionary<string, bool>();
+                if (msg.Content != null)
+                    msgDict.Add("content", msg.Content);
 
-                foreach (var msg in group)
-                {
-                    switch (msg.Role.ToLower())
+                if (msg.ToolCalls != null)
+                    msgDict.Add("tool_calls", msg.ToolCalls.Select(tc => new
                     {
-                        case "system":
-                        case "user":
-                            validMessages.Add(new { role = msg.Role.ToLower(), content = msg.Content });
-                            break;
+                        id = tc.Id,
+                        type = tc.Type,
+                        function = new
+                        {
+                            name = tc.Function.Name,
+                            arguments = JsonConvert.SerializeObject(tc.Function.Arguments)
+                        }
+                    }).ToList());
 
-                        case "assistant":
-                            if (msg.ToolCalls?.Any() == true)
-                            {
-                                var toolCallsArray = msg.ToolCalls.Select((tool, index) =>
-                                {
-                                    var toolCallId = $"call_{validMessages.Count}_{index}";
-                                    pendingToolCalls[toolCallId] = false;
-                                    return new
-                                    {
-                                        id = toolCallId,
-                                        type = "function",
-                                        function = new
-                                        {
-                                            name = tool.Name,
-                                            arguments = JsonConvert.SerializeObject(tool.Parameters)
-                                        }
-                                    };
-                                }).ToList();
+                if (msg.ToolCallId != null)
+                    msgDict.Add("tool_call_id", msg.ToolCallId);
 
-                                validMessages.Add(new
-                                {
-                                    role = "assistant",
-                                    content = msg.Content,
-                                    tool_calls = toolCallsArray
-                                });
-                            }
-                            else
-                            {
-                                validMessages.Add(new { role = "assistant", content = msg.Content });
-                            }
-                            break;
-
-                        case "tool":
-                            var pendingCall = pendingToolCalls.FirstOrDefault(x => !x.Value);
-                            if (!string.IsNullOrEmpty(pendingCall.Key))
-                            {
-                                validMessages.Add(new
-                                {
-                                    role = "tool",
-                                    content = msg.Content,
-                                    tool_call_id = pendingCall.Key
-                                });
-                                pendingToolCalls[pendingCall.Key] = true;
-                            }
-                            break;
-                    }
-                }
-
-                if (pendingToolCalls.Any(x => !x.Value))
-                {
-                    if (group != messageGroups.Last())
-                    {
-                        throw new Exception($"Unhandled tool calls in conversation: {string.Join(", ", pendingToolCalls.Where(x => !x.Value).Select(x => x.Key))}");
-                    }
-                }
-            }
+                return msgDict;
+            }).ToList();
 
             var requestBody = new
             {
                 model = Constants.ModelNameToId[Enum.Parse<ModelName>(ModelName.BaseModel.ToString())],
-                messages = validMessages,
+                messages = messages,
                 tools = openAiTools,
                 tool_choice = "auto",
                 stream = false
@@ -140,7 +118,10 @@ public class OpenAiLlmClient : ILlmClient
                 NullValueHandling = NullValueHandling.Ignore,
                 ContractResolver = new DefaultContractResolver
                 {
-                    NamingStrategy = new CamelCaseNamingStrategy()
+                    NamingStrategy = new CamelCaseNamingStrategy
+                    {
+                        OverrideSpecifiedNames = false
+                    }
                 }
             };
 
@@ -159,61 +140,60 @@ public class OpenAiLlmClient : ILlmClient
 
             if (response.IsSuccessStatusCode)
             {
-                var responseString = await response.Content.ReadAsStringAsync(cancellationToken);
-                var responseJson = JObject.Parse(responseString);
+                var responseContent = await response.Content.ReadAsStringAsync();
+                var responseJson = JObject.Parse(responseContent);
 
-                var message = responseJson["choices"]?[0]?["message"];
-                if (message == null)
+                // Parse the response
+                var choices = responseJson["choices"] as JArray;
+                if (choices == null || choices.Count == 0)
                 {
-                    throw new Exception("Invalid response format from OpenAI API");
+                    throw new Exception("No choices returned from OpenAI API.");
                 }
 
-                var role = message["role"]?.ToString() ?? "assistant";
-                var messageContent = message["content"]?.ToString();
-                var toolCalls = message["tool_calls"];
+                var firstChoice = choices[0];
+                var messageJson = firstChoice["message"];
 
-                if (toolCalls != null && toolCalls.Any())
+                var assistantMessage = new Message
                 {
-                    var parsedToolCalls = new List<OllamaTools>();
-                    foreach (var toolCall in toolCalls)
+                    Role = messageJson["role"].ToString(),
+                    Content = messageJson["content"]?.ToString()
+                };
+
+                // Check for function calls (tool_calls)
+                if (messageJson["tool_calls"] != null)
+                {
+                    var toolCallsJson = messageJson["tool_calls"] as JArray;
+                    var functionCalls = new List<FunctionCall>();
+                    string id = string.Empty;
+
+                    foreach (var toolCall in toolCallsJson)
                     {
                         var function = toolCall["function"];
-                        if (function != null)
+                        id = toolCall["id"].ToString();
+                        var functionCall = new FunctionCall
                         {
-                            try
+                            Id = id,
+                            Type = toolCall["type"].ToString(),
+                            Function = new FunctionDetail
                             {
-                                var argumentsStr = function["arguments"]?.ToString() ?? "{}";
-                                var parameters = JsonConvert.DeserializeObject<Dictionary<string, object>>(argumentsStr);
+                                Name = function["name"].ToString(),
+                                Arguments = function["arguments"] != null
+                                    ? JsonConvert.DeserializeObject<Dictionary<string, object>>(function["arguments"].ToString())
+                                    : new Dictionary<string, object>()
+                            }
+                        };
 
-                                parsedToolCalls.Add(new OllamaTools
-                                {
-                                    Type = "function",
-                                    Name = function["name"]?.ToString(),
-                                    Parameters = parameters
-                                });
-                            }
-                            catch (JsonException ex)
-                            {
-                                _logger.LogError($"Error parsing tool call arguments: {ex.Message}");
-                                continue;
-                            }
-                        }
+                        functionCalls.Add(functionCall);
                     }
 
-                    return new ResponseMessage
-                    {
-                        Role = role,
-                        Content = messageContent ?? string.Empty,
-                        ToolCalls = parsedToolCalls
-                    };
+                    assistantMessage.ToolCalls = functionCalls;
                 }
 
-                return new ResponseMessage
-                {
-                    Role = role,
-                    Content = messageContent ?? throw new Exception("Empty content in OpenAI response"),
-                    ToolCalls = null
-                };
+                // Add the assistant's message to the conversation history
+                conversationHistory.Add(assistantMessage);
+
+                // Return the assistant's message
+                return assistantMessage;
             }
             else
             {
@@ -227,6 +207,37 @@ public class OpenAiLlmClient : ILlmClient
             throw;
         }
     }
+
+    private void CleanUpConversationHistory(List<Message> conversationHistory)
+    {
+        for (int i = 0; i < conversationHistory.Count; i++)
+        {
+            var message = conversationHistory[i];
+            if (message.Role == "assistant" && message.ToolCalls != null)
+            {
+                foreach (var toolCall in message.ToolCalls)
+                {
+                    var toolCallId = toolCall.Id;
+                    var hasToolResponse = conversationHistory.Any(m =>
+                        m.Role == "tool" && m.ToolCallId == toolCallId);
+
+                    if (!hasToolResponse)
+                    {
+                        // Remove the assistant message and any subsequent messages until the next user message
+                        int j = i + 1;
+                        while (j < conversationHistory.Count && conversationHistory[j].Role != "user")
+                        {
+                            conversationHistory.RemoveAt(j);
+                        }
+                        conversationHistory.RemoveAt(i);
+                        i--; // Adjust index after removal
+                        break; // Move to next message
+                    }
+                }
+            }
+        }
+    }
+
 
     public async Task<T> StructuredOutputPrompt<T>(string prompt, string model = "gpt-4") where T : class
     {

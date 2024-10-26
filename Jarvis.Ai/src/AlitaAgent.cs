@@ -1,6 +1,9 @@
-﻿using System.Threading.Tasks.Dataflow;
+﻿using System.Collections.Concurrent;
+using System.Linq;
+using System.Threading.Tasks.Dataflow;
 using Jarvis.Ai.Common.Settings;
 using Jarvis.Ai.Interfaces;
+using Jarvis.Ai.LLM;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 
@@ -38,8 +41,9 @@ public class AlitaAgent : IJarvis, IDisposable
     private readonly IModuleRegistry _moduleRegistry;
     private readonly ITranscriber _transcriptionService;
     private readonly IAudioOutputModule _audioOutputModule;
-    private readonly List<ResponseMessage> _conversationHistory;
+    private readonly List<Message> _conversationHistory;
     private readonly BufferBlock<string> _transcriptionBuffer;
+    private readonly ConcurrentDictionary<string, byte> _processedTranscriptions = new();
     private readonly StarkProtocols _starkProtocols;
     private bool _isDisposed;
     private CancellationTokenSource _listeningCts;
@@ -62,8 +66,11 @@ public class AlitaAgent : IJarvis, IDisposable
         _llmClient = llmClient;
         _starkProtocols = starkProtocols;
 
-        _conversationHistory = new List<ResponseMessage>();
-        _transcriptionBuffer = new BufferBlock<string>();
+        _conversationHistory = new List<Message>();
+        _transcriptionBuffer = new BufferBlock<string>(new DataflowBlockOptions
+        {
+            BoundedCapacity = 100
+        });
 
         _transcriptionService.OnTranscriptionResult += HandleTranscriptionResult;
     }
@@ -107,36 +114,36 @@ public class AlitaAgent : IJarvis, IDisposable
         {
             // Clear previous conversation history
             _conversationHistory.Clear();
-        
+
             // Add system instructions
-            _conversationHistory.Add(new ResponseMessage 
-            { 
-                Role = "system", 
-                Content = _starkProtocols.SessionInstructions 
-            });
-
-            // Request an introduction from the AI
-            _conversationHistory.Add(new ResponseMessage 
-            { 
-                Role = "user", 
-                Content = "Please introduce yourself briefly and let me know you're ready to help." 
-            });
-
-            // Get AI's introduction
-            var introductionResponse = await _llmClient.SendCommandToLlmAsync(
-                _conversationHistory, 
-                cancellationToken
-            );
-
-            // Add the response to conversation history
-            _conversationHistory.Add(introductionResponse);
-
-            // Speak the introduction
-            if (!string.IsNullOrEmpty(introductionResponse.Content))
+            _conversationHistory.Add(new Message
             {
-                _logger.LogInformation($"Speaking introduction: {introductionResponse.Content}");
-                await _audioOutputModule.SpeakAsync(introductionResponse.Content, cancellationToken);
-            }
+                Role = "system",
+                Content = _starkProtocols.SessionInstructions
+            });
+
+            //// Request an introduction from the AI
+            //_conversationHistory.Add(new Message
+            //{
+            //    Role = "user",
+            //    Content = "Please introduce yourself briefly and let me know you're ready to help."
+            //});
+
+            //// Get AI's introduction
+            //var introductionResponse = await _llmClient.SendCommandToLlmAsync(
+            //    _conversationHistory,
+            //    cancellationToken
+            //);
+
+            //// Add the response to conversation history
+            //_conversationHistory.Add(introductionResponse);
+
+            //// Speak the introduction
+            //if (!string.IsNullOrEmpty(introductionResponse.Content))
+            //{
+            //    _logger.LogInformation($"Speaking introduction: {introductionResponse.Content}");
+            //    await _audioOutputModule.SpeakAsync(introductionResponse.Content, cancellationToken);
+            //}
         }
         catch (Exception ex)
         {
@@ -155,17 +162,54 @@ public class AlitaAgent : IJarvis, IDisposable
         try
         {
             if (_isProcessing) return string.Empty;
+
             _logger.LogInformation("Waiting for transcription...");
             var transcription = await _transcriptionBuffer.ReceiveAsync(cancellationToken);
-            if (string.IsNullOrEmpty(transcription)) return transcription;
-            
-            _logger.LogInformation($"Processing transcription: {transcription}");
-            await ProcessCommandAsync(transcription, cancellationToken);
-            return transcription;
+
+            if (string.IsNullOrEmpty(transcription))
+                return transcription;
+
+            // Se la trascrizione è già stata processata, saltiamo
+            if (_processedTranscriptions.ContainsKey(transcription))
+            {
+                _logger.LogInformation($"Skipping already processed transcription: {transcription}");
+                return string.Empty;
+            }
+
+            _logger.LogInformation($"Processing new transcription: {transcription}");
+
+            try
+            {
+                await ProcessCommandAsync(transcription, cancellationToken);
+
+                // Marca la trascrizione come processata dopo il completamento
+                _processedTranscriptions.TryAdd(transcription, 0);
+
+                // Opzionale: pulisci la cronologia se diventa troppo grande
+                if (_processedTranscriptions.Count > 1000)
+                {
+                    var oldestTranscriptions = _processedTranscriptions.Keys.Take(_processedTranscriptions.Count - 500);
+                    foreach (var old in oldestTranscriptions)
+                    {
+                        _processedTranscriptions.TryRemove(old, out _);
+                    }
+                }
+
+                return transcription;
+            }
+            finally
+            {
+                _isProcessing = false;
+            }
         }
         catch (OperationCanceledException)
         {
             _logger.LogInformation("Listening operation cancelled");
+            return string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in ListenForResponseAsync");
             return string.Empty;
         }
     }
@@ -206,7 +250,17 @@ public class AlitaAgent : IJarvis, IDisposable
     private void HandleTranscriptionResult(object sender, string transcription)
     {
         if (string.IsNullOrEmpty(transcription) || _isProcessing) return;
-        _transcriptionBuffer.Post(transcription);
+
+        // Verifica se abbiamo già processato questa trascrizione
+        if (!_processedTranscriptions.ContainsKey(transcription))
+        {
+            _logger.LogInformation($"New transcription received: {transcription}");
+            _transcriptionBuffer.Post(transcription);
+        }
+        else
+        {
+            _logger.LogInformation($"Transcription already processed, ignoring: {transcription}");
+        }
     }
     #endregion
 
@@ -223,12 +277,11 @@ public class AlitaAgent : IJarvis, IDisposable
         {
             _isProcessing = true;
             _logger.LogInformation($"Processing command: {command}");
-            _conversationHistory.Add(new ResponseMessage { Role = "user", Content = command });
+            _conversationHistory.Add(new Message { Role = "user", Content = command });
 
             while (!cancellationToken.IsCancellationRequested)
             {
                 var response = await _llmClient.SendCommandToLlmAsync(_conversationHistory, cancellationToken);
-                _conversationHistory.Add(response);
 
                 if (response.ToolCalls == null || !string.IsNullOrEmpty(response.Content))
                 {
@@ -253,31 +306,33 @@ public class AlitaAgent : IJarvis, IDisposable
         }
     }
 
-    private async Task ExecuteToolCallAsync(OllamaTools toolCall, CancellationToken cancellationToken)
+    private async Task ExecuteToolCallAsync(FunctionCall functionCall, CancellationToken cancellationToken)
     {
         try
         {
-            _logger.LogInformation($"Executing tool call: {toolCall.Name}");
+            _logger.LogInformation($"Executing tool call: {functionCall.Function.Name}");
 
-            var funcArgs = JsonConvert.SerializeObject(toolCall.Parameters);
+            var funcArgs = JsonConvert.SerializeObject(functionCall.Function.Arguments);
             var args = JsonConvert.DeserializeObject<Dictionary<string, object>>(funcArgs);
-            var result = await _moduleRegistry.ExecuteCommand(toolCall.Name, args);
+            var result = await _moduleRegistry.ExecuteCommand(functionCall.Function.Name, args);
             var functionResponse = JsonConvert.SerializeObject(result);
 
             _logger.LogInformation($"Tool call result: {functionResponse}");
-            _conversationHistory.Add(new ResponseMessage
+            _conversationHistory.Add(new Message
             {
                 Role = "tool",
-                Content = functionResponse
+                Content = functionResponse,
+                ToolCallId = functionCall.Id
             });
         }
         catch (Exception ex)
         {
-            _logger.LogError($"Error executing tool call {toolCall.Name}: {ex.Message}");
-            _conversationHistory.Add(new ResponseMessage
+            _logger.LogError($"Error executing tool call {functionCall.Function.Name}: {ex.Message}");
+            _conversationHistory.Add(new Message
             {
                 Role = "tool",
-                Content = $"Error: {ex.Message}"
+                Content = $"Error: {ex.Message}",
+                ToolCallId = functionCall.Id
             });
         }
     }
@@ -307,7 +362,7 @@ public class AlitaAgent : IJarvis, IDisposable
         if (_isDisposed) return;
         if (disposing)
         {
-            _logger.LogInformation("Disposing OllamaLlmAgent resources");
+            _logger.LogInformation("Disposing AlitaAgent resources");
 
             _transcriptionService.OnTranscriptionResult -= HandleTranscriptionResult;
             _transcriptionService.StopListening();
