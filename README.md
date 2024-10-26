@@ -2,14 +2,23 @@
 
 # Jarvis.AI
 
-Jarvis.AI is an AI assistant inspired by the AI from the Iron Man series. Built using C#, it leverages the power of OpenAI's API to offer a multifunctional assistant capable of various tasks. This project aims to provide a useful and customizable assistant while acknowledging the contributions of the underlying OpenAI technology.
+Jarvis.AI is an AI assistant inspired by the AI from the Iron Man series. Built using C#, it leverages multiple AI technologies to offer a multifunctional assistant capable of various tasks. The project supports both high-performance cloud services and cost-effective local alternatives, allowing users to balance performance and cost according to their needs.
 
 ## 🌟 Features
 
 - **Voice Interaction**: Voice input and output for natural communication.
+
+  - Multiple transcription options:
+    - **WhisperTranscriber**: Local speech-to-text using Whisper for cost-effective processing
+    - **AssemblyAITranscriber**: Cloud-based alternative with high accuracy
 - **Visual Interface**: Graphical user interface for enhanced interaction and data visualization.
-- **WebSocket Communication**: Real-time communication with OpenAI's API.
+- **Flexible LLM Integration**:
+
+  - **OpenAI**: High performance with cloud-based processing
+  - **Ollama**: Local LLM support for cost-effective operation with acceptable latency
+- **WebSocket Communication**: Real-time communication with AI services.
 - **Modular Architecture**: Well-designed architecture allows easy extension of Jarvis modules.
+
   1. Use the same technique as existing modules for reference.
   2. Each module can be placed in the same directory as other modules for brevity.
   3. Each module must inherit from `BaseJarvisModule`.
@@ -41,31 +50,38 @@ Jarvis.AI is an AI assistant inspired by the AI from the Iron Man series. Built 
 
 - C# and .NET
 - WebSocket (real-time communication)
-- OpenAI API
+- OpenAI API (cloud LLM)
+- Ollama (local LLM)
+- Whisper.net (local speech-to-text)
+- AssemblyAI API (cloud speech-to-text)
 - JSON (data serialization/deserialization)
 
 ## 🔗 Support Tools
 
 OpenAI and Claude were used for technical research and brainstorming, contributing to the development of the project's ideas and features.
 
-
 ## 🤖 Assistant Tools Overview
 
 Jarvis.AI includes various tools to enhance functionality:
 
 ### Utility Functions
+
 - Current time, random number generation, browser tab management, Mermaid diagram generation.
 
 ### File Operations
+
 - Create, update, delete, read files and directories, discuss contents.
 
 ### Memory Management
+
 - Add, remove, reset variables in memory, clipboard operations.
 
 ### Information Sourcing
+
 - Web scraping capabilities.
 
 ### Diagram Generation
+
 - Create Mermaid diagrams based on prompts.
 
 ## 🚀 Getting Started
@@ -87,71 +103,60 @@ Interact with Jarvis.AI using the command-line interface. Use the `--prompts` fl
    ```
 
    Now you can run the commands without specifying the project parameter. Here are the updated examples:
-
 2. **Simple Greeting**
 
    ```bash
    dotnet run -- --prompts "Hello, how are you?"
    ```
-
 3. **Multiple Commands**
 
    ```bash
    dotnet run -- --prompts "Command 1 | Command 2 | Command 3"
    ```
-
 4. **Open a Website**
 
    ```bash
    dotnet run -- --prompts "Open Hacker News"
    ```
-
 5. **Memory Operations**
 
    - Copy current clipboard to memory:
-     
+
      ```bash
      dotnet run -- --prompts "copy my current clipboard to memory"
      ```
-   
    - Add a key-value pair to memory:
-     
+
      ```bash
      dotnet run -- --prompts "add to memory the key 'project_status' with the value 'in progress'"
      ```
-   
    - Reset active memory:
-     
+
      ```bash
      dotnet run -- --prompts "reset active memory"
      ```
-
 6. **File Operations**
 
    - Create a new CSV file:
-     
+
      ```bash
      dotnet run -- --prompts "Create a new CSV file called user analytics with 10 mock rows."
      ```
-   
    - Read a file into memory:
-     
+
      ```bash
      dotnet run -- --prompts "read file user analytics into memory"
      ```
-
 7. **Web Scraping**
 
    ```bash
    dotnet run -- --prompts "scrape the URL from my clipboard and save it to a file"
    ```
-
 8. **Generating Diagrams**
 
    ```bash
    dotnet run -- --prompts "Generate a diagram outlining the architecture of a minimal TikTok clone"
    ```
-
 
 ## 🗣️ Voice Commands Examples
 
@@ -170,12 +175,16 @@ Interact with Jarvis.AI using the command-line interface. Use the `--prompts` fl
 ## 💡 Key Components
 
 - **IronManSuit**: Main class for initializing and managing core components.
+- **JarvisAgent**: Manages WebSocket communication with OpenAI and conversation flow.
+- **AlitaAgent**: Alternative agent implementation supporting cost-effective local processing with Ollama LLM.
+- **StarkIndustries**: Tool definitions and implementations.
 
 ### Example Module Implementation
+
 Below is an example of how to create a new module for Jarvis.AI:
 
 ```csharp
-using Jarvis.Ai.Common.Settings;
+ExecuteComponentAsyncusing Jarvis.Ai.Common.Settings;
 using Jarvis.Ai.Features.StarkArsenal.ModuleAttributes;
 using Jarvis.Ai.Interfaces;
 using Jarvis.Ai.Models;
@@ -190,8 +199,8 @@ public class SummarizeTextJarvisModule : BaseJarvisModule
     public string Prompt { get; set; }
 
     [TacticalComponent("The model to use for summarizing the text. Defaults to 'BaseModel' if not explicitly specified.", "string")]
-    public string Model { get; set; }
-        
+    public string Model { get; set; } = ModelName.BaseModel.ToString();
+  
     private readonly IJarvisConfigManager _jarvisConfigManager;
     private readonly LlmClient _llmClient;
     private readonly IFileManager _fileManager;
@@ -203,10 +212,8 @@ public class SummarizeTextJarvisModule : BaseJarvisModule
         _fileManager = fileManager;
     }
 
-    protected override async Task<Dictionary<string, object>> ExecuteInternal(Dictionary<string, object> args)
+    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync()
     {
-        string prompt = args["Prompt"].ToString();
-        string model = args.ContainsKey("model") ? args["model"].ToString() : ModelName.BaseModel.ToString();
         string filePath = _jarvisConfigManager.GetValue("TEXT_FILE_PATH");
 
         if (string.IsNullOrEmpty(filePath) || !_fileManager.FileExists(filePath))
@@ -234,11 +241,11 @@ public class SummarizeTextJarvisModule : BaseJarvisModule
 </file-content>
 
 <user-prompt>
-{prompt}
+{Prompt}
 </user-prompt>
 ";
 
-        string modelId = Constants.ModelNameToId[Enum.Parse<ModelName>(model)];
+        string modelId = Constants.ModelNameToId[Enum.Parse<ModelName>(Model)];
         string summary = await _llmClient.ChatPrompt(summarizePrompt, modelId);
 
         return new Dictionary<string, object>
@@ -251,12 +258,9 @@ public class SummarizeTextJarvisModule : BaseJarvisModule
 }
 ```
 
-- **JarvisAgent**: Manages WebSocket communication with OpenAI and conversation flow.
-- **StarkIndustries**: Tool definitions and implementations.
-
 ## 🌈 Inspiration
 
-This project draws inspiration from a Python-based AI assistant by [disler](https://github.com/disler/poc-realtime-ai-assistant). For more tutorials, check out [Indy Dev Dan's YouTube channel](https://www.youtube.com/@indydevdan).
+This project draws inspiration from a Python-based AI assistant by [disler](https://github.com/disler/poc-realtime-ai-assistant). For more tutorials, check out [Indy Dev Dan&#39;s YouTube channel](https://www.youtube.com/@indydevdan).
 
 ## 📘 Documentation
 
@@ -264,7 +268,7 @@ This project draws inspiration from a Python-based AI assistant by [disler](http
 
 ## PROJECT_STRUCTURE
 
-The project is organized as follows: [Detailed Project Structure](PROJECT_STRUCTURE.md)
+The project is organized as follows: [Detailed Project Structure](PROJECT_STRUCTURE.txt)
 
 - **Jarvis.Ai.Common**: Contains common settings and utilities used across the project.
 - **Jarvis.Ai.Features.StarkArsenal**: Contains all modules and features that extend Jarvis's capabilities.
@@ -282,13 +286,14 @@ We welcome contributions to Jarvis.AI! Please read our contributing guidelines t
 
 ## 📄 License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License.
 
 ## 📞 Contact
 
 For any inquiries or contributions, contact:
 
 Ordis Hysa
+
 - Email: [ordishysa@gmail.com](mailto:ordishysa@gmail.com)
 - [LinkedIn](https://www.linkedin.com/in/ordishysa/)
 
