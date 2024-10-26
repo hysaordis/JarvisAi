@@ -1,7 +1,7 @@
 ﻿using Jarvis.Ai.Common.Settings;
 using Jarvis.Ai.Features.StarkArsenal.ModuleAttributes;
+using Jarvis.Ai.Interfaces;
 using Jarvis.Ai.Models;
-using Jarvis.Ai.src.Interfaces;
 
 namespace Jarvis.Ai.Features.StarkArsenal.Modules;
 
@@ -15,18 +15,16 @@ public class DeleteFileJarvisModule : BaseJarvisModule
     public bool ForceDelete { get; set; }
 
     private readonly IJarvisConfigManager _jarvisConfigManager;
-    private readonly LlmClient _llmClient;
+    private readonly ILlmClient _llmClient;
 
-    public DeleteFileJarvisModule(IJarvisConfigManager jarvisConfigManager, LlmClient llmClient)
+    public DeleteFileJarvisModule(IJarvisConfigManager jarvisConfigManager, ILlmClient llmClient)
     {
         _jarvisConfigManager = jarvisConfigManager;
         _llmClient = llmClient;
     }
 
-    protected override async Task<Dictionary<string, object>> ExecuteInternal(Dictionary<string, object> args)
+    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync()
     {
-        string prompt = args["Prompt"].ToString();
-        bool forceDelete = args.ContainsKey("force_delete") && Convert.ToBoolean(args["force_delete"]);
         string scratchPadDir = _jarvisConfigManager.GetValue("SCRATCH_PAD_DIR") ?? "./scratchpad";
         Directory.CreateDirectory(scratchPadDir);
 
@@ -48,7 +46,7 @@ public class DeleteFileJarvisModule : BaseJarvisModule
 </available-files>
 
 <user-prompt>
-    {prompt}
+    {Prompt}
 </user-prompt>
 ";
 
@@ -75,7 +73,7 @@ public class DeleteFileJarvisModule : BaseJarvisModule
             };
         }
 
-        if (!forceDelete)
+        if (!ForceDelete)
         {
             return new Dictionary<string, object>
             {

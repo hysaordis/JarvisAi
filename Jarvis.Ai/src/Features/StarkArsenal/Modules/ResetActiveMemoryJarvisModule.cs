@@ -7,8 +7,8 @@ namespace Jarvis.Ai.Features.StarkArsenal.Modules;
 public class ResetActiveMemoryJarvisModule : BaseJarvisModule
 {
     [TacticalComponent("Whether to force reset the memory without confirmation. Defaults to false if not specified.", "boolean")]
-    public bool ForceDelete { get; set; }
-        
+    public bool ForceDelete { get; set; } = false;
+
     private readonly IMemoryManager _memoryManager;
 
     public ResetActiveMemoryJarvisModule(IMemoryManager memoryManager)
@@ -16,10 +16,9 @@ public class ResetActiveMemoryJarvisModule : BaseJarvisModule
         _memoryManager = memoryManager;
     }
 
-    protected override async Task<Dictionary<string, object>> ExecuteInternal(Dictionary<string, object> args)
+    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync()
     {
-        bool forceDelete = args.ContainsKey("force_delete") && Convert.ToBoolean(args["force_delete"]);
-        if (!forceDelete)
+        if (!ForceDelete)
         {
             return new Dictionary<string, object>
             {

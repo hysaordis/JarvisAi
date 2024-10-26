@@ -2,7 +2,6 @@
 using Jarvis.Ai.Features.StarkArsenal.ModuleAttributes;
 using Jarvis.Ai.Interfaces;
 using Jarvis.Ai.Models;
-using Jarvis.Ai.src.Interfaces;
 using Newtonsoft.Json;
 
 namespace Jarvis.Ai.Features.StarkArsenal.Modules;
@@ -12,21 +11,20 @@ public class RemoveVariableFromMemoryJarvisModule : BaseJarvisModule
 {
     [TacticalComponent("The user's prompt describing which variable to remove from memory.", "string", true)]
     public string Prompt { get; set; }
-        
+
     private readonly IMemoryManager _memoryManager;
-    private readonly LlmClient _llmClient;
+    private readonly ILlmClient _llmClient;
     private readonly IJarvisLogger _jarvisLogger;
 
-    public RemoveVariableFromMemoryJarvisModule(IMemoryManager memoryManager, LlmClient llmClient, IJarvisLogger jarvisLogger)
+    public RemoveVariableFromMemoryJarvisModule(IMemoryManager memoryManager, ILlmClient llmClient, IJarvisLogger jarvisLogger)
     {
         _memoryManager = memoryManager;
         _llmClient = llmClient;
         _jarvisLogger = jarvisLogger;
     }
 
-    protected override async Task<Dictionary<string, object>> ExecuteInternal(Dictionary<string, object> args)
+    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync()
     {
-        string prompt = args["Prompt"].ToString();
         var availableKeys = _memoryManager.ListKeys();
         string availableKeysStr = string.Join(", ", availableKeys);
 
@@ -45,7 +43,7 @@ public class RemoveVariableFromMemoryJarvisModule : BaseJarvisModule
 </available-keys>
 
 <user-prompt>
-    {prompt}
+    {Prompt}
 </user-prompt>
 ";
 

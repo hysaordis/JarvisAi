@@ -1,8 +1,8 @@
 ﻿using System.Diagnostics;
 using Jarvis.Ai.Common.Settings;
 using Jarvis.Ai.Features.StarkArsenal.ModuleAttributes;
+using Jarvis.Ai.Interfaces;
 using Jarvis.Ai.Models;
-using Jarvis.Ai.src.Interfaces;
 using Newtonsoft.Json;
 
 namespace Jarvis.Ai.Features.StarkArsenal.Modules;
@@ -12,21 +12,20 @@ public class OpenBrowserJarvisModule : BaseJarvisModule
 {
     [TacticalComponent("The user's prompt to determine which URL to open.", "string", true)]
     public string Prompt { get; set; }
-        
+
     private readonly StarkProtocols _starkProtocols;
-    private readonly LlmClient _llmClient;
+    private readonly ILlmClient _llmClient;
     private readonly IJarvisLogger _jarvisLogger;
 
-    public OpenBrowserJarvisModule(StarkProtocols starkProtocols, LlmClient llmClient, IJarvisLogger jarvisLogger)
+    public OpenBrowserJarvisModule(StarkProtocols starkProtocols, ILlmClient llmClient, IJarvisLogger jarvisLogger)
     {
         _starkProtocols = starkProtocols;
         _llmClient = llmClient;
         _jarvisLogger = jarvisLogger;
     }
 
-    protected override async Task<Dictionary<string, object>> ExecuteInternal(Dictionary<string, object> args)
+    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync()
     {
-        string prompt = args["Prompt"].ToString();
         var browserUrls = _starkProtocols.GetBrowserUrls();
         string browserUrlsStr = string.Join(", ", browserUrls);
 
@@ -45,7 +44,7 @@ public class OpenBrowserJarvisModule : BaseJarvisModule
 </browser-urls>
 
 <user-prompt>
-    {prompt}
+    {Prompt}
 </user-prompt>
 ";
 

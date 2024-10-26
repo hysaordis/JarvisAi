@@ -2,7 +2,6 @@
 using Jarvis.Ai.Features.AudioProcessing;
 using Jarvis.Ai.Features.VisualOutput;
 using Jarvis.Ai.Interfaces;
-using Jarvis.Ai.src.Interfaces;
 using Jarvis.Console.config;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -20,8 +19,11 @@ public class Startup
         services.AddSingleton<IAudioOutputModule, AudioOutputModule>();
         services.AddSingleton<IDisplayModule, VisualInterfaceModule>();
         services.AddSingleton<IMemoryManager, MemoryManager>();
-        
-        services.AddSingleton<IJarvis, JarvisAgent>();
+
+        services.AddSingleton<ITranscriber, AssemblyAITranscriber>();
+
+        //services.AddSingleton<IJarvis, JarvisAgent>();/
+        services.AddSingleton<IJarvis, AlitaAgent>();//
 
         // Register IronManSuit which depends on IJarvis
         services.AddSingleton<IronManSuit>();

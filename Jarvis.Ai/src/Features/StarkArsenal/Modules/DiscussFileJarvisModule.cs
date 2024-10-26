@@ -2,7 +2,6 @@
 using Jarvis.Ai.Features.StarkArsenal.ModuleAttributes;
 using Jarvis.Ai.Interfaces;
 using Jarvis.Ai.Models;
-using Jarvis.Ai.src.Interfaces;
 
 namespace Jarvis.Ai.Features.StarkArsenal.Modules;
 
@@ -13,15 +12,15 @@ public class DiscussFileJarvisModule : BaseJarvisModule
     public string Prompt { get; set; }
 
     [TacticalComponent("The model to use for discussing the file content. Defaults to 'BaseModel' if not explicitly specified.", "string")]
-    public string Model { get; set; }
-        
+    public string Model { get; set; } = ModelName.BaseModel.ToString();
+
     private readonly IJarvisConfigManager _jarvisConfigManager;
     private readonly IMemoryManager _memoryManager;
-    private readonly LlmClient _llmClient;
+    private readonly ILlmClient _llmClient;
     private readonly StarkProtocols _starkProtocols;
 
     public DiscussFileJarvisModule(IJarvisConfigManager jarvisConfigManager, IMemoryManager memoryManager,
-        LlmClient llmClient, StarkProtocols starkProtocols)
+        ILlmClient llmClient, StarkProtocols starkProtocols)
     {
         _jarvisConfigManager = jarvisConfigManager;
         _memoryManager = memoryManager;
@@ -29,10 +28,8 @@ public class DiscussFileJarvisModule : BaseJarvisModule
         _starkProtocols = starkProtocols;
     }
 
-    protected override async Task<Dictionary<string, object>> ExecuteInternal(Dictionary<string, object> args)
+    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync()
     {
-        string prompt = args["Prompt"].ToString();
-        string model = args.ContainsKey("model") ? args["model"].ToString() : ModelName.BaseModel.ToString();
         string? scratchPadDir = _jarvisConfigManager.GetValue("SCRATCH_PAD_DIR");
         string focusFile = _starkProtocols.GetFocusFile();
         string? filePath;
@@ -69,7 +66,7 @@ public class DiscussFileJarvisModule : BaseJarvisModule
 </available-files>
 
 <user-prompt>
-    {prompt}
+    {Prompt}
 </user-prompt>
 ";
 
@@ -110,11 +107,11 @@ public class DiscussFileJarvisModule : BaseJarvisModule
 {memoryContent}
 
 <user-prompt>
-{prompt}
+{Prompt}
 </user-prompt>
 ";
 
-        string modelId = Constants.ModelNameToId[Enum.Parse<ModelName>(model)];
+        string modelId = Constants.ModelNameToId[Enum.Parse<ModelName>(Model)];
         string discussion = await _llmClient.ChatPrompt(discussFilePrompt, modelId);
 
         return new Dictionary<string, object>

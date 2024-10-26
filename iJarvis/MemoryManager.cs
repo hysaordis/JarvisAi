@@ -2,7 +2,6 @@
 using System.Xml.Linq;
 using Jarvis.Ai.Common.Utils;
 using Jarvis.Ai.Interfaces;
-using Jarvis.Ai.src.Interfaces;
 
 namespace Jarvis.Console;
 

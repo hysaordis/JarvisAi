@@ -1,5 +1,5 @@
 ﻿using System.Text.Json;
-using Jarvis.Ai.src.Interfaces;
+using Jarvis.Ai.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 

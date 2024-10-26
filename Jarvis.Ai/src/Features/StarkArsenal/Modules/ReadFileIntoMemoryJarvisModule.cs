@@ -2,7 +2,6 @@
 using Jarvis.Ai.Features.StarkArsenal.ModuleAttributes;
 using Jarvis.Ai.Interfaces;
 using Jarvis.Ai.Models;
-using Jarvis.Ai.src.Interfaces;
 
 namespace Jarvis.Ai.Features.StarkArsenal.Modules;
 
@@ -11,22 +10,21 @@ public class ReadFileIntoMemoryJarvisModule : BaseJarvisModule
 {
     [TacticalComponent("The user's prompt describing the file to read into memory.", "string", true)]
     public string Prompt { get; set; }
-        
+
     private readonly IJarvisConfigManager _jarvisConfigManager;
     private readonly IMemoryManager _memoryManager;
-    private readonly LlmClient _llmClient;
+    private readonly ILlmClient _llmClient;
 
     public ReadFileIntoMemoryJarvisModule(IJarvisConfigManager jarvisConfigManager, IMemoryManager memoryManager,
-        LlmClient llmClient)
+        ILlmClient llmClient)
     {
         _jarvisConfigManager = jarvisConfigManager;
         _memoryManager = memoryManager;
         _llmClient = llmClient;
     }
 
-    protected override async Task<Dictionary<string, object>> ExecuteInternal(Dictionary<string, object> args)
+    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync()
     {
-        string prompt = args["Prompt"].ToString();
         string? scratchPadDir = _jarvisConfigManager.GetValue("SCRATCH_PAD_DIR");
         var availableFiles = Directory.GetFiles(scratchPadDir);
         string availableFilesStr = string.Join(", ", availableFiles);
@@ -46,7 +44,7 @@ public class ReadFileIntoMemoryJarvisModule : BaseJarvisModule
 </available-files>
 
 <user-prompt>
-    {prompt}
+    {Prompt}
 </user-prompt>
 ";
 

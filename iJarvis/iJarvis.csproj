@@ -13,12 +13,6 @@
     </ItemGroup>
 
     <ItemGroup>
-      <EditorConfigFiles Include="..\..\..\..\..\..\Program Files\dotnet\sdk\8.0.403\Sdks\Microsoft.NET.Sdk\analyzers\build\config\analysislevel_6_default.globalconfig">
-        <Link>config\analysislevel_6_default.globalconfig</Link>
-      </EditorConfigFiles>
-    </ItemGroup>
-
-    <ItemGroup>
       <None Update="config\active_memory.json">
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </None>

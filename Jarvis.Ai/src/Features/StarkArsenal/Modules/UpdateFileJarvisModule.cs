@@ -2,7 +2,6 @@
 using Jarvis.Ai.Features.StarkArsenal.ModuleAttributes;
 using Jarvis.Ai.Interfaces;
 using Jarvis.Ai.Models;
-using Jarvis.Ai.src.Interfaces;
 
 namespace Jarvis.Ai.Features.StarkArsenal.Modules;
 
@@ -13,24 +12,22 @@ public class UpdateFileJarvisModule : BaseJarvisModule
     public string Prompt { get; set; }
 
     [TacticalComponent("The model to use for updating the file content. Defaults to 'BaseModel' if not explicitly specified.", "string")]
-    public string Model { get; set; }
-        
+    public string Model { get; set; } = ModelName.BaseModel.ToString();
+
     private readonly IJarvisConfigManager _jarvisConfigManager;
     private readonly IMemoryManager _memoryManager;
-    private readonly LlmClient _llmClient;
+    private readonly ILlmClient _llmClient;
 
     public UpdateFileJarvisModule(IJarvisConfigManager jarvisConfigManager, IMemoryManager memoryManager,
-        LlmClient llmClient)
+        ILlmClient llmClient)
     {
         _jarvisConfigManager = jarvisConfigManager;
         _memoryManager = memoryManager;
         _llmClient = llmClient;
     }
 
-    protected override async Task<Dictionary<string, object>> ExecuteInternal(Dictionary<string, object> args)
+    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync()
     {
-        string prompt = args["Prompt"].ToString();
-        string model = args.ContainsKey("model") ? args["model"].ToString() : null;
         string scratchPadDir = _jarvisConfigManager.GetValue("SCRATCH_PAD_DIR") ?? "./scratchpad";
         Directory.CreateDirectory(scratchPadDir);
 
@@ -52,7 +49,7 @@ public class UpdateFileJarvisModule : BaseJarvisModule
 </available-files>
 
 <user-prompt>
-    {prompt}
+    {Prompt}
 </user-prompt>
 ";
 
@@ -109,12 +106,12 @@ public class UpdateFileJarvisModule : BaseJarvisModule
 {memoryContent}
 
 <user-prompt>
-    {prompt}
+    {Prompt}
 </user-prompt>
 ";
 
-        string modelId = model != null
-            ? Constants.ModelNameToId[Enum.Parse<ModelName>(model)]
+        string modelId = Model != null
+            ? Constants.ModelNameToId[Enum.Parse<ModelName>(Model)]
             : Constants.ModelNameToId[ModelName.BaseModel];
         string fileUpdateResponse = await _llmClient.ChatPrompt(updateFilePrompt, modelId);
 
@@ -124,7 +121,7 @@ public class UpdateFileJarvisModule : BaseJarvisModule
         {
             { "status", "File updated" },
             { "file_name", selectedFile },
-            { "model_used", model ?? ModelName.BaseModel.ToString() },
+            { "model_used", Model ?? ModelName.BaseModel.ToString() },
         };
     }
 }

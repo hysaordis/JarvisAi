@@ -1,4 +1,4 @@
-﻿using Jarvis.Ai.src.Interfaces;
+﻿using Jarvis.Ai.Interfaces;
 using Microsoft.Extensions.Configuration;
 
 namespace Jarvis.Console.config;

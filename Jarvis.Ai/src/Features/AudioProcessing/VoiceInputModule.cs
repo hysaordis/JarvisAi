@@ -1,7 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using Jarvis.Ai.Common.Settings;
 using Jarvis.Ai.Interfaces;
-using Jarvis.Ai.src.Interfaces;
 using NAudio.Wave;
 
 namespace Jarvis.Ai.Features.AudioProcessing

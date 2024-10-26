@@ -1,0 +1,56 @@
+[package]
+name = "voice-interface-app"
+version = "0.1.0"
+description = "A Tauri Voice Interface App"
+authors = ["you"]
+license = ""
+repository = ""
+edition = "2021"
+
+# Configurazioni di build ottimizzate
+[profile.dev]
+opt-level = 0  # Nessuna ottimizzazione per build veloci
+debug = true
+debug-assertions = true
+overflow-checks = true
+lto = false
+incremental = true
+codegen-units = 256
+
+[profile.release]
+opt-level = "s"  # Ottimizzazione per dimensioni
+strip = true  # Rimuove i simboli debug
+lto = true
+codegen-units = 1
+panic = "abort"
+incremental = false
+
+[build-dependencies]
+tauri-build = { version = "1.5", features = [] }
+
+[dependencies]
+tauri = { version = "1.5", features = [
+    "system-tray",
+    "window-show",
+    "window-hide",
+    "window-close",
+    "window-set-always-on-top",
+    "window-start-dragging"
+]}
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+parking_lot = "0.12"  # Per migliori performance con i mutex
+rayon = "1.5"  # Per parallelizzazione
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+default = ["custom-protocol"]
+
+# Configurazioni specifiche per Windows
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["winuser"] }
+
+# Ottimizzazioni per il linker
+[target.'cfg(windows)'.build]
+rustflags = ["-C", "target-cpu=native", "-C", "link-arg=/LTCG"]

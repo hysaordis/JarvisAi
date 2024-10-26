@@ -1,6 +1,5 @@
 ﻿using Jarvis.Ai.Features.StarkArsenal.ModuleAttributes;
 using Jarvis.Ai.Interfaces;
-using Jarvis.Ai.src.Interfaces;
 
 namespace Jarvis.Ai.Features.StarkArsenal.Modules;
 
@@ -16,7 +15,7 @@ public class ReadDirIntoMemoryJarvisModule : BaseJarvisModule
         _memoryManager = memoryManager;
     }
 
-    protected override async Task<Dictionary<string, object>> ExecuteInternal(Dictionary<string, object> args)
+    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync()
     {
         string scratchPadDir = _jarvisConfigManager.GetValue("SCRATCH_PAD_DIR") ?? "./scratchpad";
 

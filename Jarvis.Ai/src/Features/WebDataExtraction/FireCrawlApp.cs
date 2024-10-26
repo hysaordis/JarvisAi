@@ -1,5 +1,5 @@
 ﻿using System.Text;
-using Jarvis.Ai.src.Interfaces;
+using Jarvis.Ai.Interfaces;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 

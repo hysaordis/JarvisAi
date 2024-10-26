@@ -5,7 +5,7 @@ namespace Jarvis.Ai.Features.StarkArsenal.Modules;
 [JarvisTacticalModule("Returns the current time.")]
 public class GetCurrentTimeJarvisModule : BaseJarvisModule
 {
-    protected override async Task<Dictionary<string, object>> ExecuteInternal(Dictionary<string, object> args)
+    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync()
     {
         return new Dictionary<string, object>
         {

@@ -1,4 +1,4 @@
-﻿namespace Jarvis.Ai.src.Interfaces;
+﻿namespace Jarvis.Ai.Interfaces;
 
 public interface IJarvisConfigManager
 {

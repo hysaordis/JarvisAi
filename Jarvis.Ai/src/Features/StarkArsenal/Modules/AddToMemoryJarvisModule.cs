@@ -11,7 +11,7 @@ public class AddToMemoryJarvisModule : BaseJarvisModule
 
     [TacticalComponent("The value to store in memory.", "string", true)]
     public string Value { get; set; }
-        
+
     private readonly IMemoryManager _memoryManager;
 
     public AddToMemoryJarvisModule(IMemoryManager memoryManager)
@@ -19,17 +19,15 @@ public class AddToMemoryJarvisModule : BaseJarvisModule
         _memoryManager = memoryManager;
     }
 
-    protected override async Task<Dictionary<string, object>> ExecuteInternal(Dictionary<string, object> args)
+    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync()
     {
-        string key = args["key"].ToString();
-        object value = args["value"];
-        bool success = _memoryManager.Upsert(key, value);
+        bool success = _memoryManager.Upsert(Key, Value);
         if (success)
         {
             return new Dictionary<string, object>
             {
                 { "status", "success" },
-                { "message", $"Added '{key}' to memory with value '{value}'" },
+                { "message", $"Added '{Key}' to memory with value '{Value}'" },
             };
         }
         else
@@ -37,7 +35,7 @@ public class AddToMemoryJarvisModule : BaseJarvisModule
             return new Dictionary<string, object>
             {
                 { "status", "error" },
-                { "message", $"Failed to add '{key}' to memory" },
+                { "message", $"Failed to add '{Key}' to memory" },
             };
         }
     }

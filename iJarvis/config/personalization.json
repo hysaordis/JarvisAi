@@ -6,5 +6,6 @@
     "https://claude.ai/chat"
   ],
   "browser_command": "open -a 'Google Chrome'",
-  "human_name": "Ordis"
+  "human_name": "Ordis",
+  "ai_assistant_name": "Alita"
 }

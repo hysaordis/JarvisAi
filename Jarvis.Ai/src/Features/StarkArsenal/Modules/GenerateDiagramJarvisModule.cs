@@ -10,8 +10,8 @@ namespace Jarvis.Ai.Features.StarkArsenal.Modules
         public string Prompt { get; set; }
 
         [TacticalComponent("The total number of diagram versions to generate. Defaults to 1 if not specified.", "integer")]
-        public int VersionCount { get; set; }
-        
+        public int VersionCount { get; set; } = 1;
+
         private readonly DiagramGenerationTool _diagramGenerationTool;
 
         public GenerateDiagramJarvisModule(DiagramGenerationTool diagramGenerationTool)
@@ -19,13 +19,11 @@ namespace Jarvis.Ai.Features.StarkArsenal.Modules
             _diagramGenerationTool = diagramGenerationTool;
         }
 
-        protected override async Task<Dictionary<string, object>> ExecuteInternal(Dictionary<string, object> args)
+        protected override async Task<Dictionary<string, object>> ExecuteComponentAsync()
         {
             try
             {
-                string prompt = args["Prompt"].ToString();
-                int versionCount = args.ContainsKey("version_count") ? Convert.ToInt32(args["version_count"]) : 1;
-                var result = await _diagramGenerationTool.GenerateDiagram(prompt, versionCount);
+                var result = await _diagramGenerationTool.GenerateDiagram(Prompt, VersionCount);
                 return result;
             }
             catch (Exception e)

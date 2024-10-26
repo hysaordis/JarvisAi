@@ -1,6 +1,5 @@
 ﻿using System.Text;
 using Jarvis.Ai.Interfaces;
-using Jarvis.Ai.src.Interfaces;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SixLabors.ImageSharp;

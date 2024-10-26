@@ -1,12 +1,14 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
 		<TargetFramework>net6.0</TargetFramework>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 	</PropertyGroup>
 
 	<ItemGroup>
+		<PackageReference Include="AssemblyAI" Version="1.1.4" />
 		<PackageReference Include="Microsoft.Extensions.Configuration" Version="8.0.0" />
 		<PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="8.0.0" />
 		<PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="8.0.1" />
@@ -15,9 +17,14 @@
 		<PackageReference Include="Microsoft.Extensions.Logging.Console" Version="8.0.1" />
 		<PackageReference Include="NAudio" Version="2.2.1" />
 		<PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+		<PackageReference Include="OllamaSharp" Version="3.0.15" />
+		<PackageReference Include="OpenAI" Version="2.0.0" />
 		<PackageReference Include="SixLabors.ImageSharp" Version="3.1.5" />
 		<PackageReference Include="System.Net.WebSockets.Client" Version="4.3.2" />
 		<PackageReference Include="TextCopy" Version="6.2.1" />
+
+		<PackageReference Include="Whisper.net" Version="1.5.0" />
+		<PackageReference Include="Whisper.net.Runtime" Version="1.5.0" />
 	</ItemGroup>
 	<ItemGroup>
 		<None Update="config\personalization.json">

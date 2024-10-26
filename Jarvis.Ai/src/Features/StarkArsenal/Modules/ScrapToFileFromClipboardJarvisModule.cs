@@ -1,8 +1,8 @@
 ﻿using Jarvis.Ai.Common.Settings;
 using Jarvis.Ai.Features.StarkArsenal.ModuleAttributes;
 using Jarvis.Ai.Features.WebDataExtraction;
+using Jarvis.Ai.Interfaces;
 using Jarvis.Ai.Models;
-using Jarvis.Ai.src.Interfaces;
 using TextCopy;
 
 namespace Jarvis.Ai.Features.StarkArsenal.Modules;
@@ -11,10 +11,10 @@ namespace Jarvis.Ai.Features.StarkArsenal.Modules;
 public class ScrapToFileFromClipboardJarvisModule : BaseJarvisModule
 {
     private readonly IJarvisConfigManager _jarvisConfigManager;
-    private readonly LlmClient _llmClient;
+    private readonly ILlmClient _llmClient;
     private readonly FireCrawlApp _fireCrawlApp;
 
-    public ScrapToFileFromClipboardJarvisModule(IJarvisConfigManager jarvisConfigManager, LlmClient llmClient,
+    public ScrapToFileFromClipboardJarvisModule(IJarvisConfigManager jarvisConfigManager, ILlmClient llmClient,
         FireCrawlApp fireCrawlApp)
     {
         _jarvisConfigManager = jarvisConfigManager;
@@ -22,7 +22,7 @@ public class ScrapToFileFromClipboardJarvisModule : BaseJarvisModule
         _fireCrawlApp = fireCrawlApp;
     }
 
-    protected override async Task<Dictionary<string, object>> ExecuteInternal(Dictionary<string, object> args)
+    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync()
     {
         string scratchPadDir = _jarvisConfigManager.GetValue("SCRATCH_PAD_DIR") ?? "./scratchpad";
         Directory.CreateDirectory(scratchPadDir);
