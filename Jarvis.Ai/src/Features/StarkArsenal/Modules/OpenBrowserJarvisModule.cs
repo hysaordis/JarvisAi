@@ -24,12 +24,16 @@ public class OpenBrowserJarvisModule : BaseJarvisModule
         _jarvisLogger = jarvisLogger;
     }
 
-    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync()
+    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync(CancellationToken cancellationToken)
     {
-        var browserUrls = _starkProtocols.GetBrowserUrls();
-        string browserUrlsStr = string.Join(", ", browserUrls);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
 
-        string promptStructure = $@"
+            var browserUrls = _starkProtocols.GetBrowserUrls();
+            string browserUrlsStr = string.Join(", ", browserUrls);
+
+            string promptStructure = $@"
 <purpose>
     Select a browser URL from the list of browser URLs based on the user's prompt.
 </purpose>
@@ -48,44 +52,65 @@ public class OpenBrowserJarvisModule : BaseJarvisModule
 </user-prompt>
 ";
 
-        _jarvisLogger.LogInformation($"📖 open_browser() Prompt: {promptStructure}");
+            _jarvisLogger.LogInformation($"📖 open_browser() Prompt: {promptStructure}");
 
-        WebUrl response =
-            await _llmClient.StructuredOutputPrompt<WebUrl>(promptStructure,
-                Constants.ModelNameToId[ModelName.FastModel]);
+            cancellationToken.ThrowIfCancellationRequested();
 
-        _jarvisLogger.LogInformation($"📖 open_browser() Response: {JsonConvert.SerializeObject(response)}");
+            WebUrl response =
+                await _llmClient.StructuredOutputPrompt<WebUrl>(promptStructure,
+                    Constants.ModelNameToId[ModelName.FastModel]);
 
-        if (!string.IsNullOrEmpty(response.Url))
-        {
-            _jarvisLogger.LogInformation($"📖 open_browser() Opening URL: {response}");
-            try
+            _jarvisLogger.LogInformation($"📖 open_browser() Response: {JsonConvert.SerializeObject(response)}");
+
+            if (!string.IsNullOrEmpty(response.Url))
             {
-                Process.Start(new ProcessStartInfo
+                _jarvisLogger.LogInformation($"📖 open_browser() Opening URL: {response}");
+                try
                 {
-                    FileName = response.Url,
-                    UseShellExecute = true
-                });
-                return new Dictionary<string, object>
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = response.Url,
+                        UseShellExecute = true
+                    });
+                    return new Dictionary<string, object>
+                    {
+                        { "status", "Browser opened" },
+                        { "url", response },
+                    };
+                }
+                catch (Exception e)
                 {
-                    { "status", "Browser opened" },
-                    { "url", response },
-                };
+                    _jarvisLogger.LogError($"Failed to open browser: {e.Message}");
+                    return new Dictionary<string, object>
+                    {
+                        { "status", "Error" },
+                        { "message", $"Failed to open browser: {e.Message}" },
+                    };
+                }
             }
-            catch (Exception e)
+
+            return new Dictionary<string, object>
             {
-                _jarvisLogger.LogError($"Failed to open browser: {e.Message}");
-                return new Dictionary<string, object>
-                {
-                    { "status", "Error" },
-                    { "message", $"Failed to open browser: {e.Message}" },
-                };
-            }
+                { "status", "No URL found" },
+            };
         }
-
-        return new Dictionary<string, object>
+        catch (OperationCanceledException)
         {
-            { "status", "No URL found" },
-        };
+            return new Dictionary<string, object>
+            {
+                { "status", "cancelled" },
+                { "message", "Operation was cancelled" }
+            };
+        }
+        catch (Exception e)
+        {
+            return new Dictionary<string, object>
+            {
+                { "status", "error" },
+                { "message", $"Failed to process browser request: {e.Message}" }
+            };
+        }
     }
 }

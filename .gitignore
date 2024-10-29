@@ -338,3 +338,4 @@ config/appsettings.local.json
 /iJarvis/runtime_time_table.json
 /iJarvis/Properties/launchSettings.json
 /runtime_time_table.json
+/iJarvis/conversations.json

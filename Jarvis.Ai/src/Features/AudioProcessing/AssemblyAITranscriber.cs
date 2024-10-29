@@ -41,7 +41,7 @@ public sealed class AssemblyAITranscriber : ITranscriber, IDisposable
     /// Default audio input device number.
     /// 0 typically represents the default system recording device.
     /// </summary>
-    private const int DEVICE_NUMBER = 0;
+    private const int DEVICE_NUMBER = 1;
 
     /// <summary>
     /// Configuration key for AssemblyAI API key.
@@ -61,7 +61,7 @@ public sealed class AssemblyAITranscriber : ITranscriber, IDisposable
     /// Duration of silence in milliseconds before considering speech ended.
     /// 1000ms (1 second) allows for natural pauses in speech without cutting off.
     /// </summary>
-    private const int SILENCE_DURATION_MS = 1000;
+    private const int SILENCE_DURATION_MS = 2000;
 
     /// <summary>
     /// Minimum duration of speech in milliseconds to be considered valid.
@@ -135,6 +135,7 @@ public sealed class AssemblyAITranscriber : ITranscriber, IDisposable
 
     public event EventHandler<string> OnTranscriptionResult;
     public event EventHandler<Exception> OnError;
+    public event EventHandler<string> PartialTranscriptReceived;
 
     public AssemblyAITranscriber(IJarvisLogger logger, IJarvisConfigManager configManager)
     {
@@ -350,7 +351,7 @@ public sealed class AssemblyAITranscriber : ITranscriber, IDisposable
             var transcriptParams = new TranscriptParams
             {
                 AudioUrl = uploadedFile.UploadUrl,
-                LanguageCode = TranscriptLanguageCode.En,
+                LanguageCode = TranscriptLanguageCode.It,
                 Punctuate = true,
                 FormatText = true
             };

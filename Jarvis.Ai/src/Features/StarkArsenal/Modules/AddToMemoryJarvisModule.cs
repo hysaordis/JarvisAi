@@ -19,18 +19,40 @@ public class AddToMemoryJarvisModule : BaseJarvisModule
         _memoryManager = memoryManager;
     }
 
-    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync()
+    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync(CancellationToken cancellationToken)
     {
-        bool success = _memoryManager.Upsert(Key, Value);
-        if (success)
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+
+            bool success = _memoryManager.Upsert(Key, Value);
+            if (success)
+            {
+                return new Dictionary<string, object>
+                {
+                    { "status", "success" },
+                    { "message", $"Added '{Key}' to memory with value '{Value}'" },
+                };
+            }
+            else
+            {
+                return new Dictionary<string, object>
+                {
+                    { "status", "error" },
+                    { "message", $"Failed to add '{Key}' to memory" },
+                };
+            }
+        }
+        catch (OperationCanceledException)
         {
             return new Dictionary<string, object>
             {
-                { "status", "success" },
-                { "message", $"Added '{Key}' to memory with value '{Value}'" },
+                { "status", "cancelled" },
+                { "message", "Operation was cancelled" }
             };
         }
-        else
+        catch (Exception)
         {
             return new Dictionary<string, object>
             {

@@ -28,30 +28,34 @@ public class DiscussFileJarvisModule : BaseJarvisModule
         _starkProtocols = starkProtocols;
     }
 
-    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync()
+    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync(CancellationToken cancellationToken)
     {
-        string? scratchPadDir = _jarvisConfigManager.GetValue("SCRATCH_PAD_DIR");
-        string focusFile = _starkProtocols.GetFocusFile();
-        string? filePath;
-
-        if (!string.IsNullOrEmpty(focusFile))
+        try
         {
-            filePath = Path.Combine(scratchPadDir, focusFile);
-            if (!File.Exists(filePath))
+            cancellationToken.ThrowIfCancellationRequested();
+
+            string? scratchPadDir = _jarvisConfigManager.GetValue("SCRATCH_PAD_DIR");
+            string focusFile = _starkProtocols.GetFocusFile();
+            string? filePath;
+
+            if (!string.IsNullOrEmpty(focusFile))
             {
-                return new Dictionary<string, object>
+                filePath = Path.Combine(scratchPadDir, focusFile);
+                if (!File.Exists(filePath))
                 {
-                    { "status", "Focus file not found" },
-                    { "file_name", focusFile }
-                };
+                    return new Dictionary<string, object>
+                    {
+                        { "status", "Focus file not found" },
+                        { "file_name", focusFile }
+                    };
+                }
             }
-        }
-        else
-        {
-            var availableFiles = Directory.GetFiles(scratchPadDir);
-            string availableFilesStr = string.Join(", ", availableFiles);
+            else
+            {
+                var availableFiles = Directory.GetFiles(scratchPadDir);
+                string availableFilesStr = string.Join(", ", availableFiles);
 
-            string selectFilePrompt = $@"
+                string selectFilePrompt = $@"
 <purpose>
     Select a file from the available files based on the user's prompt.
 </purpose>
@@ -70,25 +74,27 @@ public class DiscussFileJarvisModule : BaseJarvisModule
 </user-prompt>
 ";
 
-            FileReadResponse fileSelectionResponse =
-                await _llmClient.StructuredOutputPrompt<FileReadResponse>(selectFilePrompt,
-                    Constants.ModelNameToId[ModelName.FastModel]);
+                FileReadResponse fileSelectionResponse =
+                    await _llmClient.StructuredOutputPrompt<FileReadResponse>(selectFilePrompt,
+                        Constants.ModelNameToId[ModelName.FastModel]);
 
-            if (string.IsNullOrEmpty(fileSelectionResponse.File))
-            {
-                return new Dictionary<string, object>
+                if (string.IsNullOrEmpty(fileSelectionResponse.File))
                 {
-                    { "status", "No matching file found" }
-                };
+                    return new Dictionary<string, object>
+                    {
+                        { "status", "No matching file found" }
+                    };
+                }
+
+                filePath = Path.Combine(scratchPadDir, fileSelectionResponse.File);
             }
 
-            filePath = Path.Combine(scratchPadDir, fileSelectionResponse.File);
-        }
+            cancellationToken.ThrowIfCancellationRequested();
 
-        string fileContent = await File.ReadAllTextAsync(filePath);
-        string memoryContent = _memoryManager.GetXmlForPrompt(new List<string> { "*" });
+            string fileContent = await File.ReadAllTextAsync(filePath);
+            string memoryContent = _memoryManager.GetXmlForPrompt(new List<string> { "*" });
 
-        string discussFilePrompt = $@"
+            string discussFilePrompt = $@"
 <purpose>
     Discuss the content of the file based on the user's prompt and the current memory content.
 </purpose>
@@ -111,14 +117,33 @@ public class DiscussFileJarvisModule : BaseJarvisModule
 </user-prompt>
 ";
 
-        string modelId = Constants.ModelNameToId[Enum.Parse<ModelName>(Model)];
-        string discussion = await _llmClient.ChatPrompt(discussFilePrompt, modelId);
+            cancellationToken.ThrowIfCancellationRequested();
 
-        return new Dictionary<string, object>
+            string modelId = Constants.ModelNameToId[Enum.Parse<ModelName>(Model)];
+            string discussion = await _llmClient.ChatPrompt(discussFilePrompt, modelId);
+
+            return new Dictionary<string, object>
+            {
+                { "status", "File discussed" },
+                { "file_name", Path.GetFileName(filePath) },
+                { "discussion", discussion }
+            };
+        }
+        catch (OperationCanceledException)
         {
-            { "status", "File discussed" },
-            { "file_name", Path.GetFileName(filePath) },
-            { "discussion", discussion }
-        };
+            return new Dictionary<string, object>
+            {
+                { "status", "cancelled" },
+                { "message", "Operation was cancelled" }
+            };
+        }
+        catch (Exception e)
+        {
+            return new Dictionary<string, object>
+            {
+                { "status", "error" },
+                { "message", $"Failed to discuss file: {e.Message}" }
+            };
+        }
     }
 }

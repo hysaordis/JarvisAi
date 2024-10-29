@@ -26,15 +26,19 @@ public class UpdateFileJarvisModule : BaseJarvisModule
         _llmClient = llmClient;
     }
 
-    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync()
+    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync(CancellationToken cancellationToken)
     {
-        string scratchPadDir = _jarvisConfigManager.GetValue("SCRATCH_PAD_DIR") ?? "./scratchpad";
-        Directory.CreateDirectory(scratchPadDir);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
 
-        var availableFiles = Directory.GetFiles(scratchPadDir);
-        string availableFilesStr = string.Join(", ", availableFiles);
+            string scratchPadDir = _jarvisConfigManager.GetValue("SCRATCH_PAD_DIR") ?? "./scratchpad";
+            Directory.CreateDirectory(scratchPadDir);
 
-        string selectFilePrompt = $@"
+            var availableFiles = Directory.GetFiles(scratchPadDir);
+            string availableFilesStr = string.Join(", ", availableFiles);
+
+            string selectFilePrompt = $@"
 <purpose>
     Select a file from the available files based on the user's prompt.
 </purpose>
@@ -53,33 +57,37 @@ public class UpdateFileJarvisModule : BaseJarvisModule
 </user-prompt>
 ";
 
-        FileSelectionResponse fileSelectionResponse =
-            await _llmClient.StructuredOutputPrompt<FileSelectionResponse>(selectFilePrompt,
-                Constants.ModelNameToId[ModelName.FastModel]);
+            cancellationToken.ThrowIfCancellationRequested();
 
-        if (string.IsNullOrEmpty(fileSelectionResponse.File))
-        {
-            return new Dictionary<string, object>
+            FileSelectionResponse fileSelectionResponse =
+                await _llmClient.StructuredOutputPrompt<FileSelectionResponse>(selectFilePrompt,
+                    Constants.ModelNameToId[ModelName.FastModel]);
+
+            if (string.IsNullOrEmpty(fileSelectionResponse.File))
             {
-                { "status", "No matching file found" }
-            };
-        }
+                return new Dictionary<string, object>
+                {
+                    { "status", "No matching file found" }
+                };
+            }
 
-        string selectedFile = fileSelectionResponse.File;
-        string filePath = Path.Combine(scratchPadDir, selectedFile);
+            string selectedFile = fileSelectionResponse.File;
+            string filePath = Path.Combine(scratchPadDir, selectedFile);
 
-        if (!File.Exists(filePath))
-        {
-            return new Dictionary<string, object>
+            if (!File.Exists(filePath))
             {
-                { "status : File does not exist", $"file_name : {selectedFile}" }
-            };
-        }
+                return new Dictionary<string, object>
+                {
+                    { "status : File does not exist", $"file_name : {selectedFile}" }
+                };
+            }
 
-        string fileContent = await File.ReadAllTextAsync(filePath);
-        string memoryContent = _memoryManager.GetXmlForPrompt(new List<string> { "*" });
+            cancellationToken.ThrowIfCancellationRequested();
 
-        string updateFilePrompt = $@"
+            string fileContent = await File.ReadAllTextAsync(filePath);
+            string memoryContent = _memoryManager.GetXmlForPrompt(new List<string> { "*" });
+
+            string updateFilePrompt = $@"
 <purpose>
     Update the content of the file based on the user's prompt, the current file content, and the current memory content.
 </purpose>
@@ -110,18 +118,38 @@ public class UpdateFileJarvisModule : BaseJarvisModule
 </user-prompt>
 ";
 
-        string modelId = Model != null
-            ? Constants.ModelNameToId[Enum.Parse<ModelName>(Model)]
-            : Constants.ModelNameToId[ModelName.BaseModel];
-        string fileUpdateResponse = await _llmClient.ChatPrompt(updateFilePrompt, modelId);
+            cancellationToken.ThrowIfCancellationRequested();
 
-        await File.WriteAllTextAsync(filePath, fileUpdateResponse);
+            string modelId = Model != null
+                ? Constants.ModelNameToId[Enum.Parse<ModelName>(Model)]
+                : Constants.ModelNameToId[ModelName.BaseModel];
+            string fileUpdateResponse = await _llmClient.ChatPrompt(updateFilePrompt, modelId);
 
-        return new Dictionary<string, object>
+            cancellationToken.ThrowIfCancellationRequested();
+            await File.WriteAllTextAsync(filePath, fileUpdateResponse);
+
+            return new Dictionary<string, object>
+            {
+                { "status", "File updated" },
+                { "file_name", selectedFile },
+                { "model_used", Model ?? ModelName.BaseModel.ToString() },
+            };
+        }
+        catch (OperationCanceledException)
         {
-            { "status", "File updated" },
-            { "file_name", selectedFile },
-            { "model_used", Model ?? ModelName.BaseModel.ToString() },
-        };
+            return new Dictionary<string, object>
+            {
+                { "status", "cancelled" },
+                { "message", "Operation was cancelled" }
+            };
+        }
+        catch (Exception e)
+        {
+            return new Dictionary<string, object>
+            {
+                { "status", "error" },
+                { "message", $"Failed to update file: {e.Message}" },
+            };
+        }
     }
 }

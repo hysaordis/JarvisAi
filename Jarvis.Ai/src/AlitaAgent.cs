@@ -1,10 +1,9 @@
 ﻿using System.Collections.Concurrent;
-using System.Linq;
 using System.Threading.Tasks.Dataflow;
 using Jarvis.Ai.Common.Settings;
 using Jarvis.Ai.Interfaces;
 using Jarvis.Ai.LLM;
-using Microsoft.Extensions.Logging;
+using Jarvis.Ai.Persistence;
 using Newtonsoft.Json;
 
 namespace Jarvis.Ai;
@@ -37,27 +36,30 @@ public class AlitaAgent : IJarvis, IDisposable
 {
     #region Private Fields
     private readonly ILlmClient _llmClient;
-    private readonly ILogger<AlitaAgent> _logger;
+    private readonly IJarvisLogger _logger;
     private readonly IModuleRegistry _moduleRegistry;
     private readonly ITranscriber _transcriptionService;
     private readonly IAudioOutputModule _audioOutputModule;
-    private readonly List<Message> _conversationHistory;
     private readonly BufferBlock<string> _transcriptionBuffer;
     private readonly ConcurrentDictionary<string, byte> _processedTranscriptions = new();
     private readonly StarkProtocols _starkProtocols;
     private bool _isDisposed;
     private CancellationTokenSource _listeningCts;
+    private CancellationTokenSource? _processingCts;
     private volatile bool _isProcessing;
+    private readonly IConversationStore _conversationStore;
+
     #endregion
 
     #region Constructor
     public AlitaAgent(
-        ILogger<AlitaAgent> logger,
+        IJarvisLogger logger,
         IModuleRegistry moduleRegistry,
         ITranscriber transcriptionService,
         IAudioOutputModule audioOutputModule,
         ILlmClient llmClient,
-        StarkProtocols starkProtocols)
+        StarkProtocols starkProtocols,
+        IConversationStore conversationStore)
     {
         _logger = logger;
         _moduleRegistry = moduleRegistry;
@@ -66,23 +68,27 @@ public class AlitaAgent : IJarvis, IDisposable
         _llmClient = llmClient;
         _starkProtocols = starkProtocols;
 
-        _conversationHistory = new List<Message>();
+        //_conversationHistory = new List<Message>();
         _transcriptionBuffer = new BufferBlock<string>(new DataflowBlockOptions
         {
             BoundedCapacity = 100
         });
 
         _transcriptionService.OnTranscriptionResult += HandleTranscriptionResult;
+        _transcriptionService.PartialTranscriptReceived += HandlePartialTranscriptionResult;
+        _conversationStore = conversationStore;
     }
+
     #endregion
 
     #region IJarvis Implementation
     public async Task InitializeAsync(string[]? initialCommands, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Initializing OllamaLlmAgent");
 
         try
         {
+            _logger.LogAgentStatus("initializing", "Starting Alita Agent system");
+
             await _transcriptionService.InitializeAsync(cancellationToken);
             await InitializeSystemPromptAsync(cancellationToken);
             await StartListeningAsync(cancellationToken);
@@ -92,6 +98,8 @@ public class AlitaAgent : IJarvis, IDisposable
                 _logger.LogInformation($"Processing {initialCommands.Length} initial commands");
                 await ExecuteCommandsAsync(initialCommands, cancellationToken);
             }
+
+            _logger.LogAgentStatus("ready", "Alita Agent initialized and ready");
         }
         catch (Exception ex)
         {
@@ -108,42 +116,39 @@ public class AlitaAgent : IJarvis, IDisposable
     /// <param name="cancellationToken">Token to cancel the operation if needed</param>
     private async Task InitializeSystemPromptAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Initializing system prompt for Ollama");
-
         try
         {
-            // Clear previous conversation history
-            _conversationHistory.Clear();
+            _logger.LogMemory("store", "Loading system instructions");
 
-            // Add system instructions
-            _conversationHistory.Add(new Message
+            // Update System Instruction
+            await _conversationStore.SaveMessageAsync(new Message
             {
                 Role = "system",
                 Content = _starkProtocols.SessionInstructions
             });
 
-            //// Request an introduction from the AI
-            //_conversationHistory.Add(new Message
-            //{
-            //    Role = "user",
-            //    Content = "Please introduce yourself briefly and let me know you're ready to help."
-            //});
+            var oldMessages = await _conversationStore.GetAllMessagesAsync();
 
-            //// Get AI's introduction
-            //var introductionResponse = await _llmClient.SendCommandToLlmAsync(
-            //    _conversationHistory,
-            //    cancellationToken
-            //);
+            // Request an introduction from the AI
+            await _conversationStore.SaveMessageAsync(new Message
+            {
+                Role = "user",
+                Content = "Greet the user in a friendly manner. If there are any incomplete tasks in the message list, " +
+                "briefly describe the task and ask if they'd like to proceed with its completion."
+            });
 
-            //// Add the response to conversation history
-            //_conversationHistory.Add(introductionResponse);
+            // Get AI's introduction
+            var introductionResponse = await _llmClient.SendCommandToLlmAsync(
+                null,
+                cancellationToken
+            );
 
-            //// Speak the introduction
-            //if (!string.IsNullOrEmpty(introductionResponse.Content))
-            //{
-            //    _logger.LogInformation($"Speaking introduction: {introductionResponse.Content}");
-            //    await _audioOutputModule.SpeakAsync(introductionResponse.Content, cancellationToken);
-            //}
+            // Speak the introduction
+            if (!string.IsNullOrEmpty(introductionResponse.Content))
+            {
+                _logger.LogInformation($"Speaking introduction: {introductionResponse.Content}");
+                await _audioOutputModule.SpeakAsync(introductionResponse.Content, cancellationToken);
+            }
         }
         catch (Exception ex)
         {
@@ -163,7 +168,8 @@ public class AlitaAgent : IJarvis, IDisposable
         {
             if (_isProcessing) return string.Empty;
 
-            _logger.LogInformation("Waiting for transcription...");
+            _logger.LogAgentStatus("listening", "Waiting for user input");
+
             var transcription = await _transcriptionBuffer.ReceiveAsync(cancellationToken);
 
             if (string.IsNullOrEmpty(transcription))
@@ -172,20 +178,16 @@ public class AlitaAgent : IJarvis, IDisposable
             // Se la trascrizione è già stata processata, saltiamo
             if (_processedTranscriptions.ContainsKey(transcription))
             {
-                _logger.LogInformation($"Skipping already processed transcription: {transcription}");
+                _logger.LogThinking("Skipping duplicate transcription", transcription);
                 return string.Empty;
             }
-
-            _logger.LogInformation($"Processing new transcription: {transcription}");
 
             try
             {
                 await ProcessCommandAsync(transcription, cancellationToken);
 
-                // Marca la trascrizione come processata dopo il completamento
                 _processedTranscriptions.TryAdd(transcription, 0);
 
-                // Opzionale: pulisci la cronologia se diventa troppo grande
                 if (_processedTranscriptions.Count > 1000)
                 {
                     var oldestTranscriptions = _processedTranscriptions.Keys.Take(_processedTranscriptions.Count - 500);
@@ -209,7 +211,7 @@ public class AlitaAgent : IJarvis, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error in ListenForResponseAsync");
+            _logger.LogError("Error in ListenForResponseAsync", ex);
             return string.Empty;
         }
     }
@@ -231,7 +233,7 @@ public class AlitaAgent : IJarvis, IDisposable
 
     public Task ShutdownAsync()
     {
-        _logger.LogInformation("Shutting down OllamaLlmAgent");
+        _logger.LogAgentStatus("shutdown", "Initiating shutdown sequence");
         _transcriptionService.StopListening();
         _listeningCts?.Cancel();
         return Task.CompletedTask;
@@ -244,28 +246,37 @@ public class AlitaAgent : IJarvis, IDisposable
         _listeningCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _transcriptionService.StartListening();
         _logger.LogInformation("Started listening");
-        // await _audioOutputModule.SpeakAsync("Ready for commands", cancellationToken);
+    }
+
+    private void HandlePartialTranscriptionResult(object? sender, string e)
+    {
+        CancelCurrentProcessing();
     }
 
     private void HandleTranscriptionResult(object sender, string transcription)
     {
-        if (string.IsNullOrEmpty(transcription) || _isProcessing) return;
+        if (string.IsNullOrEmpty(transcription)) return;
 
-        // Verifica se abbiamo già processato questa trascrizione
+        if (_isProcessing)
+        {
+            _logger.LogThinking("New input received, canceling current processing");
+            CancelCurrentProcessing();
+        }
+
         if (!_processedTranscriptions.ContainsKey(transcription))
         {
-            _logger.LogInformation($"New transcription received: {transcription}");
+            _logger.LogConversation("transcription", transcription, "New input detected");
             _transcriptionBuffer.Post(transcription);
         }
         else
         {
-            _logger.LogInformation($"Transcription already processed, ignoring: {transcription}");
+            _logger.LogThinking("Skipping duplicate transcription", transcription);
         }
     }
     #endregion
 
     #region Command Processing
-    private async Task ProcessCommandAsync(string command, CancellationToken cancellationToken)
+    private async Task ProcessCommandAsync(string command, CancellationToken externalCancellationToken)
     {
         if (_isProcessing)
         {
@@ -276,33 +287,43 @@ public class AlitaAgent : IJarvis, IDisposable
         try
         {
             _isProcessing = true;
-            _logger.LogInformation($"Processing command: {command}");
-            _conversationHistory.Add(new Message { Role = "user", Content = command });
 
-            while (!cancellationToken.IsCancellationRequested)
+            _processingCts = CancellationTokenSource.CreateLinkedTokenSource(externalCancellationToken);
+            var processingToken = _processingCts.Token;
+
+            _logger.LogThinking($"Processing user request: {command}");
+            await _conversationStore.SaveMessageAsync(new Message { Role = "user", Content = command });
+
+            while (!processingToken.IsCancellationRequested)
             {
-                var response = await _llmClient.SendCommandToLlmAsync(_conversationHistory, cancellationToken);
+                var response = await _llmClient.SendCommandToLlmAsync(null, processingToken);
+                _logger.LogConversation("assistant", response.Content);
 
                 if (response.ToolCalls == null || !string.IsNullOrEmpty(response.Content))
                 {
-                    _logger.LogInformation($"Received direct response: {response.Content}");
-                    await _audioOutputModule.SpeakAsync(response.Content, cancellationToken);
+                    await _audioOutputModule.SpeakAsync(response.Content, processingToken);
                     break;
                 }
 
                 foreach (var toolCall in response.ToolCalls)
                 {
-                    await ExecuteToolCallAsync(toolCall, cancellationToken);
+                    await ExecuteToolCallAsync(toolCall, processingToken);
                 }
             }
         }
+        catch (OperationCanceledException)
+        {
+            _logger.LogAgentStatus("canceled", "Processing canceled");
+        }
         catch (Exception ex)
         {
-            await HandleErrorAsync(ex, cancellationToken);
+            await HandleErrorAsync(ex, externalCancellationToken);
         }
         finally
         {
             _isProcessing = false;
+            _processingCts?.Dispose();
+            _processingCts = null;
         }
     }
 
@@ -310,15 +331,19 @@ public class AlitaAgent : IJarvis, IDisposable
     {
         try
         {
-            _logger.LogInformation($"Executing tool call: {functionCall.Function.Name}");
+            _logger.LogToolExecution(functionCall.Function.Name, "start",
+            $"Executing with args: {functionCall.Function.Arguments}");
+
 
             var funcArgs = JsonConvert.SerializeObject(functionCall.Function.Arguments);
             var args = JsonConvert.DeserializeObject<Dictionary<string, object>>(funcArgs);
             var result = await _moduleRegistry.ExecuteCommand(functionCall.Function.Name, args);
             var functionResponse = JsonConvert.SerializeObject(result);
 
-            _logger.LogInformation($"Tool call result: {functionResponse}");
-            _conversationHistory.Add(new Message
+            _logger.LogToolExecution(functionCall.Function.Name, "complete",
+            $"Completed with result: {functionResponse}");
+
+            await _conversationStore.SaveMessageAsync(new Message
             {
                 Role = "tool",
                 Content = functionResponse,
@@ -328,12 +353,30 @@ public class AlitaAgent : IJarvis, IDisposable
         catch (Exception ex)
         {
             _logger.LogError($"Error executing tool call {functionCall.Function.Name}: {ex.Message}");
-            _conversationHistory.Add(new Message
+            await _conversationStore.SaveMessageAsync(new Message
             {
                 Role = "tool",
                 Content = $"Error: {ex.Message}",
                 ToolCallId = functionCall.Id
             });
+        }
+    }
+
+    private void CancelCurrentProcessing()
+    {
+        try
+        {
+            if (_processingCts != null)
+            {
+                _logger.LogAgentStatus("canceling", "Canceling current processing");
+                _processingCts.Cancel();
+                _processingCts.Dispose();
+                _processingCts = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error canceling processing: {ex.Message}");
         }
     }
     #endregion
@@ -362,15 +405,15 @@ public class AlitaAgent : IJarvis, IDisposable
         if (_isDisposed) return;
         if (disposing)
         {
-            _logger.LogInformation("Disposing AlitaAgent resources");
+            _logger.LogAgentStatus("disposing", "Cleaning up Alita Agent resources");
 
             _transcriptionService.OnTranscriptionResult -= HandleTranscriptionResult;
             _transcriptionService.StopListening();
 
+            CancelCurrentProcessing();
             _listeningCts?.Cancel();
             _listeningCts?.Dispose();
 
-            _conversationHistory.Clear();
             _transcriptionBuffer.Complete();
         }
 

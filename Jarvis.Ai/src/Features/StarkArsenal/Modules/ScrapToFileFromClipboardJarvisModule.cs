@@ -22,13 +22,15 @@ public class ScrapToFileFromClipboardJarvisModule : BaseJarvisModule
         _fireCrawlApp = fireCrawlApp;
     }
 
-    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync()
+    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync(CancellationToken cancellationToken)
     {
-        string scratchPadDir = _jarvisConfigManager.GetValue("SCRATCH_PAD_DIR") ?? "./scratchpad";
-        Directory.CreateDirectory(scratchPadDir);
-
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            string scratchPadDir = _jarvisConfigManager.GetValue("SCRATCH_PAD_DIR") ?? "./scratchpad";
+            Directory.CreateDirectory(scratchPadDir);
+
             // Get URL from clipboard
             string? url = await ClipboardService.GetTextAsync();
             url = url!.Trim();
@@ -43,6 +45,8 @@ public class ScrapToFileFromClipboardJarvisModule : BaseJarvisModule
                 };
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
+
             // Generate file name using LLMClient
             string fileNamePrompt = $@"
 <purpose>
@@ -52,6 +56,7 @@ public class ScrapToFileFromClipboardJarvisModule : BaseJarvisModule
 <instructions>
     <instruction>Create a short, descriptive file name based on the URL.</instruction>
     <instruction>Use lowercase letters, numbers, and underscores only.</instruction>
+    <instruction>Use English name.</instruction>
     <instruction>Include the .md extension at the end.</instruction>
 </instructions>
 ";
@@ -61,10 +66,14 @@ public class ScrapToFileFromClipboardJarvisModule : BaseJarvisModule
                     Constants.ModelNameToId[ModelName.FastModel]);
             string fileName = fileNameResponse.FileName;
 
+            cancellationToken.ThrowIfCancellationRequested();
+
             // Scrape URL content using FirecrawlApp
             var scrapeResult = await _fireCrawlApp.ScrapeUrl(url);
 
             string content = scrapeResult.ContainsKey("content") ? scrapeResult["content"].ToString() : "";
+
+            cancellationToken.ThrowIfCancellationRequested();
 
             // Save to file
             string filePath = Path.Combine(scratchPadDir, fileName);
@@ -75,6 +84,14 @@ public class ScrapToFileFromClipboardJarvisModule : BaseJarvisModule
                 { "status", "success" },
                 { "message", $"Content scraped and saved to {filePath}" },
                 { "file_name", fileName },
+            };
+        }
+        catch (OperationCanceledException)
+        {
+            return new Dictionary<string, object>
+            {
+                { "status", "cancelled" },
+                { "message", "Operation was cancelled" }
             };
         }
         catch (Exception e)

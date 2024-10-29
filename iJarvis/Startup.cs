@@ -20,7 +20,9 @@ public class Startup
         services.AddSingleton<IDisplayModule, VisualInterfaceModule>();
         services.AddSingleton<IMemoryManager, MemoryManager>();
 
+        //services.AddSingleton<ITranscriber, WhisperTranscriber>();
         services.AddSingleton<ITranscriber, AssemblyAITranscriber>();
+        //services.AddSingleton<ITranscriber, AssemblyAIRealtimeTranscriber>();
 
         //services.AddSingleton<IJarvis, JarvisAgent>();/
         services.AddSingleton<IJarvis, AlitaAgent>();//

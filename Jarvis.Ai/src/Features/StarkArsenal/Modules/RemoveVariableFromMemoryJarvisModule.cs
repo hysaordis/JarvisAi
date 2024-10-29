@@ -23,12 +23,16 @@ public class RemoveVariableFromMemoryJarvisModule : BaseJarvisModule
         _jarvisLogger = jarvisLogger;
     }
 
-    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync()
+    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync(CancellationToken cancellationToken)
     {
-        var availableKeys = _memoryManager.ListKeys();
-        string availableKeysStr = string.Join(", ", availableKeys);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
 
-        string selectKeyPrompt = $@"
+            var availableKeys = _memoryManager.ListKeys();
+            string availableKeysStr = string.Join(", ", availableKeys);
+
+            string selectKeyPrompt = $@"
 <purpose>
     Select a key from the available keys in memory based on the user's prompt.
 </purpose>
@@ -47,36 +51,57 @@ public class RemoveVariableFromMemoryJarvisModule : BaseJarvisModule
 </user-prompt>
 ";
 
-        MemoryKeyResponse keySelectionResponse =
-            await _llmClient.StructuredOutputPrompt<MemoryKeyResponse>(selectKeyPrompt,
-                Constants.ModelNameToId[ModelName.FastModel]);
+            cancellationToken.ThrowIfCancellationRequested();
 
-        _jarvisLogger.LogInformation(
-            $"Key selection response: {JsonConvert.SerializeObject(keySelectionResponse)}");
+            MemoryKeyResponse keySelectionResponse =
+                await _llmClient.StructuredOutputPrompt<MemoryKeyResponse>(selectKeyPrompt,
+                    Constants.ModelNameToId[ModelName.FastModel]);
 
-        if (string.IsNullOrEmpty(keySelectionResponse.Key))
+            _jarvisLogger.LogInformation(
+                $"Key selection response: {JsonConvert.SerializeObject(keySelectionResponse)}");
+
+            if (string.IsNullOrEmpty(keySelectionResponse.Key))
+            {
+                return new Dictionary<string, object>
+                {
+                    { "status", "not_found" },
+                    { "message", "No matching key found in memory" },
+                };
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (_memoryManager.Delete(keySelectionResponse.Key))
+            {
+                return new Dictionary<string, object>
+                {
+                    { "status", "success" },
+                    { "message", $"Key '{keySelectionResponse.Key}' removed from memory" },
+                };
+            }
+            else
+            {
+                return new Dictionary<string, object>
+                {
+                    { "status", "error" },
+                    { "message", $"Failed to remove key '{keySelectionResponse.Key}' from memory" },
+                };
+            }
+        }
+        catch (OperationCanceledException)
         {
             return new Dictionary<string, object>
             {
-                { "status", "not_found" },
-                { "message", "No matching key found in memory" },
+                { "status", "cancelled" },
+                { "message", "Operation was cancelled" }
             };
         }
-
-        if (_memoryManager.Delete(keySelectionResponse.Key))
-        {
-            return new Dictionary<string, object>
-            {
-                { "status", "success" },
-                { "message", $"Key '{keySelectionResponse.Key}' removed from memory" },
-            };
-        }
-        else
+        catch (Exception e)
         {
             return new Dictionary<string, object>
             {
                 { "status", "error" },
-                { "message", $"Failed to remove key '{keySelectionResponse.Key}' from memory" },
+                { "message", $"Failed to remove variable from memory: {e.Message}" }
             };
         }
     }

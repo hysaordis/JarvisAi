@@ -23,11 +23,11 @@ public class ModuleRegistry : IModuleRegistry
         _functionDefinitions[name.ToLower()] = GetFunctionDefinitionFromModule(jarvisModule);
     }
 
-    public async Task<object> ExecuteCommand(string name, Dictionary<string, object> args)
+    public async Task<object> ExecuteCommand(string name, Dictionary<string, object> args, CancellationToken cancellationToken = default)
     {
         if (_commands.TryGetValue(name.ToLower(), out var command))
         {
-            return await command.Execute(args);
+            return await command.Execute(args, cancellationToken);
         }
         throw new KeyNotFoundException($"Command '{name}' not found.");
     }

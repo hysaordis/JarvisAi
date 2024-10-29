@@ -23,13 +23,17 @@ public class ReadFileIntoMemoryJarvisModule : BaseJarvisModule
         _llmClient = llmClient;
     }
 
-    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync()
+    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync(CancellationToken cancellationToken)
     {
-        string? scratchPadDir = _jarvisConfigManager.GetValue("SCRATCH_PAD_DIR");
-        var availableFiles = Directory.GetFiles(scratchPadDir);
-        string availableFilesStr = string.Join(", ", availableFiles);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
 
-        string selectFilePrompt = $@"
+            string? scratchPadDir = _jarvisConfigManager.GetValue("SCRATCH_PAD_DIR");
+            var availableFiles = Directory.GetFiles(scratchPadDir);
+            string availableFilesStr = string.Join(", ", availableFiles);
+
+            string selectFilePrompt = $@"
 <purpose>
     Select a file from the available files based on the user's prompt.
 </purpose>
@@ -48,38 +52,59 @@ public class ReadFileIntoMemoryJarvisModule : BaseJarvisModule
 </user-prompt>
 ";
 
-        FileReadResponse fileSelectionResponse =
-            await _llmClient.StructuredOutputPrompt<FileReadResponse>(selectFilePrompt,
-                Constants.ModelNameToId[ModelName.FastModel]);
+            cancellationToken.ThrowIfCancellationRequested();
 
-        if (string.IsNullOrEmpty(fileSelectionResponse.File))
-        {
-            return new Dictionary<string, object>
+            FileReadResponse fileSelectionResponse =
+                await _llmClient.StructuredOutputPrompt<FileReadResponse>(selectFilePrompt,
+                    Constants.ModelNameToId[ModelName.FastModel]);
+
+            if (string.IsNullOrEmpty(fileSelectionResponse.File))
             {
-                { "status", "error" },
-                { "message", "No matching file found" },
-            };
+                return new Dictionary<string, object>
+                {
+                    { "status", "error" },
+                    { "message", "No matching file found" },
+                };
+            }
+
+            string filePath = Path.Combine(scratchPadDir, fileSelectionResponse.File);
+
+            if (!File.Exists(filePath))
+            {
+                return new Dictionary<string, object>
+                {
+                    { "status", "error" },
+                    { "message", $"File '{fileSelectionResponse.File}' not found in scratch_pad_dir" },
+                };
+            }
+
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                string content = await File.ReadAllTextAsync(filePath);
+                _memoryManager.Upsert(fileSelectionResponse.File, content);
+                return new Dictionary<string, object>
+                {
+                    { "status", "success" },
+                    { "message", $"File '{fileSelectionResponse.File}' content saved to memory" },
+                };
+            }
+            catch (Exception e)
+            {
+                return new Dictionary<string, object>
+                {
+                    { "status", "error" },
+                    { "message", $"Failed to read file '{fileSelectionResponse.File}' into memory: {e.Message}" },
+                };
+            }
         }
-
-        string filePath = Path.Combine(scratchPadDir, fileSelectionResponse.File);
-
-        if (!File.Exists(filePath))
+        catch (OperationCanceledException)
         {
             return new Dictionary<string, object>
             {
-                { "status", "error" },
-                { "message", $"File '{fileSelectionResponse.File}' not found in scratch_pad_dir" },
-            };
-        }
-
-        try
-        {
-            string content = await File.ReadAllTextAsync(filePath);
-            _memoryManager.Upsert(fileSelectionResponse.File, content);
-            return new Dictionary<string, object>
-            {
-                { "status", "success" },
-                { "message", $"File '{fileSelectionResponse.File}' content saved to memory" },
+                { "status", "cancelled" },
+                { "message", "Operation was cancelled" }
             };
         }
         catch (Exception e)
@@ -87,7 +112,7 @@ public class ReadFileIntoMemoryJarvisModule : BaseJarvisModule
             return new Dictionary<string, object>
             {
                 { "status", "error" },
-                { "message", $"Failed to read file '{fileSelectionResponse.File}' into memory: {e.Message}" },
+                { "message", $"Failed to process file read request: {e.Message}" }
             };
         }
     }

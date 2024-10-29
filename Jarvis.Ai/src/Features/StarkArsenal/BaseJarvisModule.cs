@@ -6,20 +6,20 @@ namespace Jarvis.Ai.Features.StarkArsenal;
 
 public abstract class BaseJarvisModule : IJarvisModule
 {
-    public Task<Dictionary<string, object>> Execute(Dictionary<string, object> args)
+    public Task<Dictionary<string, object>> Execute(Dictionary<string, object> args, CancellationToken cancellationToken = default)
     {
-        return Timeit.MeasureAsync(() => ExecuteInternal(args), GetType().Name);
+        return Timeit.MeasureAsync(() => ExecuteInternal(args, cancellationToken), GetType().Name);
     }
 
-    protected virtual async Task<Dictionary<string, object>> ExecuteInternal(Dictionary<string, object> args)
+    protected virtual async Task<Dictionary<string, object>> ExecuteInternal(Dictionary<string, object> args, CancellationToken cancellationToken)
     {
         // Extract parameters dynamically before execution
         ParameterExtractionHelper.ExtractAndSetParameters(this, args);
 
         // Continue with the actual component execution
-        return await ExecuteComponentAsync();
+        return await ExecuteComponentAsync(cancellationToken);
     }
 
-    // New abstract method that derived classes will implement
-    protected abstract Task<Dictionary<string, object>> ExecuteComponentAsync();
+    // Modified abstract method that derived classes will implement
+    protected abstract Task<Dictionary<string, object>> ExecuteComponentAsync(CancellationToken cancellationToken);
 }

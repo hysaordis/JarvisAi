@@ -26,24 +26,28 @@ public class CreateFileJarvisModule : BaseJarvisModule
         _llmClient = llmClient;
     }
 
-    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync()
+    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync(CancellationToken cancellationToken)
     {
-        string? scratchPadDir = _jarvisConfigManager.GetValue("SCRATCH_PAD_DIR");
-        Directory.CreateDirectory(scratchPadDir);
-
-        string filePath = Path.Combine(scratchPadDir, FileName);
-
-        if (File.Exists(filePath))
+        try
         {
-            return new Dictionary<string, object>
+            cancellationToken.ThrowIfCancellationRequested();
+
+            string? scratchPadDir = _jarvisConfigManager.GetValue("SCRATCH_PAD_DIR");
+            Directory.CreateDirectory(scratchPadDir);
+
+            string filePath = Path.Combine(scratchPadDir, FileName);
+
+            if (File.Exists(filePath))
             {
-                { "status", "file already exists" }
-            };
-        }
+                return new Dictionary<string, object>
+                {
+                    { "status", "file already exists" }
+                };
+            }
 
-        string memoryContent = _memoryManager.GetXmlForPrompt(new List<string> { "*" });
+            string memoryContent = _memoryManager.GetXmlForPrompt(new List<string> { "*" });
 
-        string promptStructure = $@"
+            string promptStructure = $@"
 <purpose>
     Generate content for a new file based on the user's prompt, the file name, and the current memory content.
 </purpose>
@@ -67,16 +71,36 @@ public class CreateFileJarvisModule : BaseJarvisModule
 {memoryContent}
 ";
 
-        CreateFileResponse response =
-            await _llmClient.StructuredOutputPrompt<CreateFileResponse>(promptStructure,
-                Constants.ModelNameToId[ModelName.BaseModel]);
+            cancellationToken.ThrowIfCancellationRequested();
 
-        await File.WriteAllTextAsync(filePath, response.FileContent);
+            CreateFileResponse response =
+                await _llmClient.StructuredOutputPrompt<CreateFileResponse>(promptStructure,
+                    Constants.ModelNameToId[ModelName.BaseModel]);
 
-        return new Dictionary<string, object>
+            cancellationToken.ThrowIfCancellationRequested();
+            await File.WriteAllTextAsync(filePath, response.FileContent);
+
+            return new Dictionary<string, object>
+            {
+                { "status", "file created" },
+                { "file_name", response.FileName }
+            };
+        }
+        catch (OperationCanceledException)
         {
-            { "status", "file created" },
-            { "file_name", response.FileName }
-        };
+            return new Dictionary<string, object>
+            {
+                { "status", "cancelled" },
+                { "message", "Operation was cancelled" }
+            };
+        }
+        catch (Exception e)
+        {
+            return new Dictionary<string, object>
+            {
+                { "status", "error" },
+                { "message", $"Failed to create file: {e.Message}" },
+            };
+        }
     }
 }

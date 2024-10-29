@@ -17,18 +17,31 @@ public class ClipboardToMemoryJarvisModule : BaseJarvisModule
         _memoryManager = memoryManager;
     }
 
-    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync()
+    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync(CancellationToken cancellationToken)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             string clipboardContent = await ClipboardService.GetTextAsync();
             string memoryKey = Key ?? "clipboard_content";
+
+            cancellationToken.ThrowIfCancellationRequested();
             _memoryManager.Upsert(memoryKey, clipboardContent);
+
             return new Dictionary<string, object>
             {
                 { "status", "success" },
                 { "key", memoryKey },
                 { "message", $"Clipboard content stored in memory under key '{memoryKey}'" },
+            };
+        }
+        catch (OperationCanceledException)
+        {
+            return new Dictionary<string, object>
+            {
+                { "status", "cancelled" },
+                { "message", "Operation was cancelled" }
             };
         }
         catch (Exception e)

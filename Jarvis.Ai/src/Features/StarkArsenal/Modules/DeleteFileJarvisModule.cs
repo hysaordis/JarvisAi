@@ -23,15 +23,19 @@ public class DeleteFileJarvisModule : BaseJarvisModule
         _llmClient = llmClient;
     }
 
-    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync()
+    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync(CancellationToken cancellationToken)
     {
-        string scratchPadDir = _jarvisConfigManager.GetValue("SCRATCH_PAD_DIR") ?? "./scratchpad";
-        Directory.CreateDirectory(scratchPadDir);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
 
-        var availableFiles = Directory.GetFiles(scratchPadDir);
-        string availableFilesStr = string.Join(", ", availableFiles);
+            string scratchPadDir = _jarvisConfigManager.GetValue("SCRATCH_PAD_DIR") ?? "./scratchpad";
+            Directory.CreateDirectory(scratchPadDir);
 
-        string selectFilePrompt = $@"
+            var availableFiles = Directory.GetFiles(scratchPadDir);
+            string availableFilesStr = string.Join(", ", availableFiles);
+
+            string selectFilePrompt = $@"
 <purpose>
     Select a file from the available files to delete.
 </purpose>
@@ -50,48 +54,68 @@ public class DeleteFileJarvisModule : BaseJarvisModule
 </user-prompt>
 ";
 
-        FileDeleteResponse fileDeleteResponse =
-            await _llmClient.StructuredOutputPrompt<FileDeleteResponse>(selectFilePrompt,
-                Constants.ModelNameToId[ModelName.FastModel]);
+            cancellationToken.ThrowIfCancellationRequested();
 
-        if (string.IsNullOrEmpty(fileDeleteResponse.File))
-        {
-            return new Dictionary<string, object>
+            FileDeleteResponse fileDeleteResponse =
+                await _llmClient.StructuredOutputPrompt<FileDeleteResponse>(selectFilePrompt,
+                    Constants.ModelNameToId[ModelName.FastModel]);
+
+            if (string.IsNullOrEmpty(fileDeleteResponse.File))
             {
-                { "status", "No matching file found" }
-            };
-        }
-
-        string selectedFile = fileDeleteResponse.File;
-        string filePath = Path.Combine(scratchPadDir, selectedFile);
-
-        if (!File.Exists(filePath))
-        {
-            return new Dictionary<string, object>
-            {
-                { $"status : File does not exist", $"file_name : {selectedFile}" }
-            };
-        }
-
-        if (!ForceDelete)
-        {
-            return new Dictionary<string, object>
-            {
-                { "status", "Confirmation required" },
-                { "file_name", selectedFile },
+                return new Dictionary<string, object>
                 {
-                    "message",
-                    $"Are you sure you want to delete '{selectedFile}'? Say force delete if you want to delete."
-                }
+                    { "status", "No matching file found" }
+                };
+            }
+
+            string selectedFile = fileDeleteResponse.File;
+            string filePath = Path.Combine(scratchPadDir, selectedFile);
+
+            if (!File.Exists(filePath))
+            {
+                return new Dictionary<string, object>
+                {
+                    { $"status : File does not exist", $"file_name : {selectedFile}" }
+                };
+            }
+
+            if (!ForceDelete)
+            {
+                return new Dictionary<string, object>
+                {
+                    { "status", "Confirmation required" },
+                    { "file_name", selectedFile },
+                    {
+                        "message",
+                        $"Are you sure you want to delete '{selectedFile}'? Say force delete if you want to delete."
+                    }
+                };
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            File.Delete(filePath);
+
+            return new Dictionary<string, object>
+            {
+                { "status", "File deleted" },
+                { "file_name", selectedFile }
             };
         }
-
-        File.Delete(filePath);
-
-        return new Dictionary<string, object>
+        catch (OperationCanceledException)
         {
-            { "status", "File deleted" },
-            { "file_name", selectedFile }
-        };
+            return new Dictionary<string, object>
+            {
+                { "status", "cancelled" },
+                { "message", "Operation was cancelled" }
+            };
+        }
+        catch (Exception e)
+        {
+            return new Dictionary<string, object>
+            {
+                { "status", "error" },
+                { "message", $"Failed to delete file: {e.Message}" },
+            };
+        }
     }
 }

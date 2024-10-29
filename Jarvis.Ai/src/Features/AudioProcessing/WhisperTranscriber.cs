@@ -5,40 +5,39 @@ using NAudio.Wave;
 using Whisper.net;
 
 namespace Jarvis.Ai.Features.AudioProcessing;
+
 public sealed class WhisperTranscriber : ITranscriber
 {
     #region Constants
     private const int DEVICE_NUMBER = 1;
-    private const int BUFFER_SECONDS = 3;
+    private const int BUFFER_SECONDS = 5; // Increased for better context
     private const int SAMPLE_RATE = 16000;
     private const int BITS_PER_SAMPLE = 16;
     private const int CHANNELS = 1;
-    private const int BUFFER_MILLISECONDS = 50;
-    private const int MAX_QUEUE_SIZE = SAMPLE_RATE * 5;
-
+    private const int BUFFER_MILLISECONDS = 100; // Increased for more stable processing
+    private const int MAX_QUEUE_SIZE = SAMPLE_RATE * BUFFER_SECONDS;
+    private const float SILENCE_THRESHOLD = 0.01f;
     #endregion
 
-    #region Private Fields
     private readonly string _whisperModelPath;
     private readonly IJarvisLogger _logger;
     private readonly IJarvisConfigManager _configManager;
     private readonly StringBuilder _transcriptionBuilder;
-
     private readonly RingBuffer<float> _audioBuffer;
+    private readonly SemaphoreSlim _processingLock;
 
     private WhisperFactory _whisperFactory;
     private WhisperProcessor _whisperProcessor;
     private WaveInEvent _waveIn;
     private CancellationTokenSource _cts;
-    private bool _isPotentiallyComplete;
     private bool _isInitialized;
     private bool _isDisposed;
-    #endregion
+    private DateTime _lastSilenceTime;
+    private bool _isSpeaking;
 
-    #region Events
     public event EventHandler<string> OnTranscriptionResult;
     public event EventHandler<Exception> OnError;
-    #endregion
+    public event EventHandler<string> PartialTranscriptReceived;
 
     public WhisperTranscriber(
         IJarvisLogger logger,
@@ -51,35 +50,49 @@ public sealed class WhisperTranscriber : ITranscriber
 
         _transcriptionBuilder = new StringBuilder();
         _audioBuffer = new RingBuffer<float>(MAX_QUEUE_SIZE);
+        _processingLock = new SemaphoreSlim(1, 1);
+        _lastSilenceTime = DateTime.UtcNow;
     }
 
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
         if (_isInitialized)
         {
-            _logger.LogWarning("Transcriber is already initialized.");
+            _logger.LogTranscriberError("initialization", "Transcriber already initialized");
             return;
         }
 
         try
         {
+            _logger.LogDeviceStatus("starting", "Initializing Whisper model");
+
             await Task.Run(() =>
             {
                 _whisperFactory = WhisperFactory.FromPath(_whisperModelPath);
 
                 _whisperProcessor = _whisperFactory.CreateBuilder()
-                    .WithLanguage("auto")
+                    .WithLanguage("en")
+                    .WithProbabilities()
+                    .WithNoContext()
+                    .WithTemperature(0.0f)
+                    .WithNoSpeechThreshold(0.06f)
+                    .WithMaxSegmentLength(30)
+                    .WithPrintTimestamps()
+                    .WithDuration(TimeSpan.FromSeconds(BUFFER_SECONDS))
+                    .WithGreedySamplingStrategy()
+                    .ParentBuilder
                     .Build();
 
             }, cancellationToken);
 
             InitializeAudioDevice();
             _isInitialized = true;
-            _logger.LogInformation("Transcriber initialized successfully");
+
+            _logger.LogDeviceStatus("ready", "Whisper transcriber initialized successfully");
         }
         catch (Exception ex)
         {
-            _logger.LogError("Failed to initialize transcriber: {Message}", ex.Message);
+            _logger.LogTranscriberError("initialization", ex.Message);
             OnError?.Invoke(this, ex);
             throw;
         }
@@ -107,44 +120,27 @@ public sealed class WhisperTranscriber : ITranscriber
         {
             _cts = new CancellationTokenSource();
             _waveIn.StartRecording();
-            
-            Task.Run(async () => 
+
+            Task.Run(async () =>
             {
-                try 
+                try
                 {
                     await ProcessAudioAsync(_cts.Token);
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    _logger.LogError("Error in processing task: {Message}", ex.Message);
+                    _logger.LogTranscriberError("processing", ex.Message);
                     OnError?.Invoke(this, ex);
                 }
             }, _cts.Token);
 
-            _logger.LogInformation("Started listening for audio input");
+            _logger.LogTranscriptionProgress("listening", "Started listening for audio input");
         }
         catch (Exception ex)
         {
-            _logger.LogError("Failed to start listening: {Message}", ex.Message);
+            _logger.LogTranscriberError("device", ex.Message);
             OnError?.Invoke(this, ex);
             throw;
-        }
-    }
-
-    public void StopListening()
-    {
-        if (_isDisposed) return;
-
-        try
-        {
-            _cts?.Cancel();
-            _waveIn?.StopRecording();
-            _logger.LogInformation("Stopped listening for audio input");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError("Error while stopping listening: {Message}", ex.Message);
-            OnError?.Invoke(this, ex);
         }
     }
 
@@ -163,11 +159,26 @@ public sealed class WhisperTranscriber : ITranscriber
                 samples[i] = sample / 32768f;
             }
 
+            // Voice activity detection with RMS level
+            float rms = (float)Math.Sqrt(samples.Select(s => s * s).Average());
+            bool currentlySpeaking = rms > SILENCE_THRESHOLD;
+
+            if (currentlySpeaking != _isSpeaking)
+            {
+                _logger.LogVoiceActivity(currentlySpeaking, rms);
+                _isSpeaking = currentlySpeaking;
+
+                if (!_isSpeaking)
+                {
+                    _lastSilenceTime = DateTime.UtcNow;
+                }
+            }
+
             _audioBuffer.Write(samples, 0, samples.Length);
         }
         catch (Exception ex)
         {
-            _logger.LogError("Errore nell'elaborazione dei dati audio: {Message}", ex.Message);
+            _logger.LogTranscriberError("audio", ex.Message);
             OnError?.Invoke(this, ex);
         }
     }
@@ -176,63 +187,93 @@ public sealed class WhisperTranscriber : ITranscriber
     {
         while (!cancellationToken.IsCancellationRequested)
         {
-            var samplesNeeded = SAMPLE_RATE * BUFFER_SECONDS;
-            if (_audioBuffer.Count >= samplesNeeded)
+            try
             {
-                var audioData = new float[samplesNeeded];
-                _audioBuffer.Read(audioData, 0, samplesNeeded);
+                await _processingLock.WaitAsync(cancellationToken);
 
-                await ProcessSegmentAsync(audioData, cancellationToken);
+                var samplesNeeded = SAMPLE_RATE * BUFFER_SECONDS;
+                if (_audioBuffer.Count >= samplesNeeded)
+                {
+                    var audioData = new float[samplesNeeded];
+                    _audioBuffer.Read(audioData, 0, samplesNeeded);
+
+                    await ProcessSegmentAsync(audioData, cancellationToken);
+                    _transcriptionBuilder.Clear(); // Clear after processing
+                }
+            }
+            finally
+            {
+                _processingLock.Release();
             }
 
             await Task.Delay(BUFFER_MILLISECONDS, cancellationToken);
         }
     }
-    
+
     private async Task ProcessSegmentAsync(float[] audioData, CancellationToken cancellationToken)
     {
         try
         {
+            _logger.LogTranscriptionProgress("processing", "Processing audio segment");
+
             await foreach (var segment in _whisperProcessor.ProcessAsync(audioData, cancellationToken))
             {
                 var text = segment.Text.Trim().RemoveTagsPreserveContent();
                 if (string.IsNullOrEmpty(text))
                     continue;
 
+                // Filter out low probability segments
+                if (segment.Probability < 0.6f)
+                {
+                    _logger.LogTranscriptionResult(text, segment.Probability);
+                    continue;
+                }
+
                 _transcriptionBuilder.AppendLine(text);
 
-                OnTranscriptionResult?.Invoke(this, _transcriptionBuilder.ToString());
+                var completeTranscription = _transcriptionBuilder.ToString().Trim();
+                if (!string.IsNullOrWhiteSpace(completeTranscription))
+                {
+                    _logger.LogTranscriptionResult(completeTranscription, segment.Probability);
+                    OnTranscriptionResult?.Invoke(this, completeTranscription);
+                }
             }
+
+            _logger.LogTranscriptionProgress("completed");
         }
         catch (Exception ex)
         {
-            _logger.LogError("Error processing audio segment: {Message}", ex.Message);
+            _logger.LogTranscriberError("transcription", ex.Message);
             OnError?.Invoke(this, ex);
         }
     }
 
-
-    private void HandleTranscriptionCompletion()
+    public void StopListening()
     {
-        var completeTranscription = _transcriptionBuilder.ToString().Trim();
-        if (!string.IsNullOrWhiteSpace(completeTranscription))
-        {
-            OnTranscriptionResult?.Invoke(this, completeTranscription);
-        }
+        if (_isDisposed) return;
 
-        // Reset state
-        _transcriptionBuilder.Clear();
-        _isPotentiallyComplete = false;
+        try
+        {
+            _cts?.Cancel();
+            _waveIn?.StopRecording();
+            _logger.LogDeviceStatus("stopping", "Recording stopped");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogTranscriberError("device", ex.Message);
+            OnError?.Invoke(this, ex);
+        }
     }
 
     private void OnRecordingStopped(object sender, StoppedEventArgs e)
     {
         if (e.Exception != null)
         {
-            _logger.LogError("Recording stopped due to error: {Message}", e.Exception.Message);
+            _logger.LogTranscriberError("device", e.Exception.Message);
             OnError?.Invoke(this, e.Exception);
         }
     }
+
 
     private void ThrowIfNotInitialized()
     {
@@ -261,13 +302,14 @@ public sealed class WhisperTranscriber : ITranscriber
             _whisperProcessor?.Dispose();
             _whisperFactory?.Dispose();
             _cts?.Dispose();
-            
+            _processingLock?.Dispose();
+
             _isDisposed = true;
-            _logger.LogInformation("Transcriber disposed successfully");
+            _logger.LogDeviceStatus("stopping", "Transcriber disposed successfully");
         }
         catch (Exception ex)
         {
-            _logger.LogError("Error during disposal: {Message}", ex.Message);
+            _logger.LogTranscriberError("disposal", ex.Message);
         }
     }
 }

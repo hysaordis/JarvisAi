@@ -19,12 +19,22 @@ namespace Jarvis.Ai.Features.StarkArsenal.Modules
             _diagramGenerationTool = diagramGenerationTool;
         }
 
-        protected override async Task<Dictionary<string, object>> ExecuteComponentAsync()
+        protected override async Task<Dictionary<string, object>> ExecuteComponentAsync(CancellationToken cancellationToken)
         {
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 var result = await _diagramGenerationTool.GenerateDiagram(Prompt, VersionCount);
                 return result;
+            }
+            catch (OperationCanceledException)
+            {
+                return new Dictionary<string, object>
+                {
+                    { "status", "cancelled" },
+                    { "message", "Operation was cancelled" }
+                };
             }
             catch (Exception e)
             {

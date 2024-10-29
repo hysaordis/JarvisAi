@@ -15,12 +15,14 @@ public class ReadDirIntoMemoryJarvisModule : BaseJarvisModule
         _memoryManager = memoryManager;
     }
 
-    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync()
+    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync(CancellationToken cancellationToken)
     {
         string scratchPadDir = _jarvisConfigManager.GetValue("SCRATCH_PAD_DIR") ?? "./scratchpad";
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var files = Directory.GetFiles(scratchPadDir);
             foreach (var filePath in files)
             {
@@ -37,6 +39,14 @@ public class ReadDirIntoMemoryJarvisModule : BaseJarvisModule
                 { "status", "success" },
                 { "message", $"All files from '{scratchPadDir}' have been read into memory" },
                 { "files_read", files.Length }
+            };
+        }
+        catch (OperationCanceledException)
+        {
+            return new Dictionary<string, object>
+            {
+                { "status", "cancelled" },
+                { "message", "Operation was cancelled" }
             };
         }
         catch (Exception e)

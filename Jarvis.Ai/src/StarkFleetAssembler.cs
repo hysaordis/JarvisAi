@@ -5,6 +5,7 @@ using Jarvis.Ai.Features.StarkArsenal;
 using Jarvis.Ai.Features.WebDataExtraction;
 using Jarvis.Ai.Interfaces;
 using Jarvis.Ai.LLM;
+using Jarvis.Ai.Persistence;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Jarvis.Ai;
@@ -14,6 +15,7 @@ public static class StarkFleetAssembler
     public static IServiceCollection AssembleJarvisSystems(this IServiceCollection services)
     {
         services.AddSingleton<IModuleRegistry, ModuleRegistry>();
+        services.AddSingleton<IConversationStore, ConversationStore>();
         services.AddSingleton<ILlmClient, OpenAiLlmClient>();
         services.AddSingleton<FireCrawlApp>();
         services.AddSingleton<DiagramGenerationTool>();

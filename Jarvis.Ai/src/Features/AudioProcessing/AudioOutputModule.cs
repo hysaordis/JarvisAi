@@ -22,6 +22,8 @@ public class AudioOutputModule : IAudioOutputModule
         _apiKey = configManager.GetValue("OPENAI_API_KEY")
                   ?? throw new ArgumentNullException("OPENAI_API_KEY is not configured");
         _defaultVoice = configManager.GetValue("OPENAI_TTS_VOICE") ?? "nova";
+
+        _jarvisLogger.LogDeviceStatus("initialized", $"Audio module ready with voice: {_defaultVoice}");
     }
 
     private async Task<Stream> GenerateSpeechAsync(
@@ -31,11 +33,12 @@ public class AudioOutputModule : IAudioOutputModule
     {
         try
         {
-            _jarvisLogger.LogInformation($"Generating speech for text: {text}");
+            _jarvisLogger.LogToolExecution("openai-tts", "start",
+                $"Converting text to speech [Voice: {_defaultVoice}]");
 
             if (text.Length > 4096)
             {
-                _jarvisLogger.LogWarning("Text exceeds 4096 characters, truncating...");
+                _jarvisLogger.LogToolExecution("openai-tts", "warning", "Text truncated to 4096 characters");
                 text = text[..4096];
             }
 
@@ -57,19 +60,22 @@ public class AudioOutputModule : IAudioOutputModule
 
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
 
+            _jarvisLogger.LogToolExecution("openai-tts", "processing", "Sending request to OpenAI API");
             var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 
             if (!response.IsSuccessStatusCode)
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _jarvisLogger.LogToolExecution("openai-tts", "error", $"API Error: {errorContent}");
                 throw new Exception($"OpenAI API request failed: {errorContent}");
             }
 
+            _jarvisLogger.LogToolExecution("openai-tts", "complete", "Text to speech conversion successful");
             return await response.Content.ReadAsStreamAsync(cancellationToken);
         }
         catch (Exception ex)
         {
-            _jarvisLogger.LogError($"Error generating speech: {ex.Message}");
+            _jarvisLogger.LogTranscriberError("tts", $"Text to speech conversion failed: {ex.Message}");
             throw;
         }
     }
@@ -78,11 +84,11 @@ public class AudioOutputModule : IAudioOutputModule
     {
         if (audioData == null || audioData.Length == 0)
         {
-            _jarvisLogger.LogError("Invalid audio data provided");
+            _jarvisLogger.LogDeviceStatus("error", "Invalid audio data provided");
             throw new ArgumentException("Audio data cannot be null or empty", nameof(audioData));
         }
 
-        _jarvisLogger.LogInformation($"Playing audio data of {audioData.Length} bytes");
+        _jarvisLogger.LogAgentStatus("speaking", "Assistant is speaking");
 
         try
         {
@@ -95,44 +101,44 @@ public class AudioOutputModule : IAudioOutputModule
             waveOut.Init(mp3Reader);
             waveOut.PlaybackStopped += (s, e) =>
             {
-                _jarvisLogger.LogInformation("Playback stopped");
                 if (e.Exception != null)
                 {
+                    _jarvisLogger.LogAgentStatus("error", $"Assistant speech error: {e.Exception.Message}");
                     tcs.SetException(e.Exception);
                 }
                 else
                 {
+                    _jarvisLogger.LogAgentStatus("ready", "Assistant finished speaking");
                     tcs.SetResult(true);
                 }
             };
 
             waveOut.Play();
-            _jarvisLogger.LogInformation("Playback started");
 
             await using (cancellationToken.Register(() =>
-                         {
-                             _jarvisLogger.LogInformation("Playback cancelled");
-                             waveOut.Stop();
-                         }))
+            {
+                _jarvisLogger.LogAgentStatus("interrupted", "Assistant speech interrupted");
+                waveOut.Stop();
+            }))
             {
                 await tcs.Task;
             }
         }
         catch (OperationCanceledException)
         {
-            _jarvisLogger.LogInformation("Audio playback was cancelled");
+            _jarvisLogger.LogAgentStatus("interrupted", "Assistant speech cancelled");
             throw;
         }
         catch (Exception ex)
         {
-            _jarvisLogger.LogError($"Error during audio playback: {ex.Message}");
+            _jarvisLogger.LogAgentStatus("error", $"Assistant speech error: {ex.Message}");
             throw;
         }
     }
 
     public async Task SpeakAsync(string text, CancellationToken cancellationToken)
     {
-        _jarvisLogger.LogInformation($"Speaking text: {text}");
+        _jarvisLogger.LogToolExecution("tts", "start", "Converting assistant response to speech");
 
         try
         {
@@ -149,13 +155,14 @@ public class AudioOutputModule : IAudioOutputModule
         }
         catch (Exception ex)
         {
-            _jarvisLogger.LogError($"Error in SpeakAsync: {ex.Message}");
+            _jarvisLogger.LogTranscriberError("tts", $"Failed to convert response to speech: {ex.Message}");
             throw;
         }
     }
 
     public void Dispose()
     {
+        _jarvisLogger.LogDeviceStatus("stopping", "Disposing audio module");
         _httpClient.Dispose();
     }
 }

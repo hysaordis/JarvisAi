@@ -4,6 +4,7 @@ using System.Text;
 using Jarvis.Ai.Common.Settings;
 using Jarvis.Ai.Interfaces;
 using Jarvis.Ai.Models;
+using Jarvis.Ai.Persistence;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Serialization;
@@ -52,8 +53,9 @@ public class OpenAiLlmClient : ILlmClient
     private readonly HttpClient _httpClient = new();
     private readonly IStarkArsenal _starkArsenal;
     private readonly IJarvisLogger _logger;
+    private readonly IConversationStore _conversationStore;
 
-    public OpenAiLlmClient(IJarvisConfigManager configManager, IStarkArsenal starkArsenal, IJarvisLogger logger)
+    public OpenAiLlmClient(IJarvisConfigManager configManager, IStarkArsenal starkArsenal, IJarvisLogger logger, IConversationStore conversationStore)
     {
         var key = configManager.GetValue("OPENAI_API_KEY");
         if (string.IsNullOrEmpty(key))
@@ -63,16 +65,17 @@ public class OpenAiLlmClient : ILlmClient
         _apiKey = key;
         _starkArsenal = starkArsenal;
         _logger = logger;
+        _conversationStore = conversationStore;
     }
 
-    public async Task<Message> SendCommandToLlmAsync(List<Message> conversationHistory, CancellationToken cancellationToken)
+    public async Task<Message> SendCommandToLlmAsync(List<Message> message, CancellationToken cancellationToken)
     {
         try
         {
-            CleanUpConversationHistory(conversationHistory);
-
             var ollamaTools = _starkArsenal.GetToolsForOllama();
             var openAiTools = ToolMapper.ConvertToOpenAiTools(ollamaTools);
+
+            var conversationHistory = await _conversationStore.GetAllMessagesAsync();
 
             var messages = conversationHistory.Select(msg =>
             {
@@ -190,7 +193,7 @@ public class OpenAiLlmClient : ILlmClient
                 }
 
                 // Add the assistant's message to the conversation history
-                conversationHistory.Add(assistantMessage);
+                await _conversationStore.SaveMessageAsync(assistantMessage);
 
                 // Return the assistant's message
                 return assistantMessage;
@@ -207,37 +210,6 @@ public class OpenAiLlmClient : ILlmClient
             throw;
         }
     }
-
-    private void CleanUpConversationHistory(List<Message> conversationHistory)
-    {
-        for (int i = 0; i < conversationHistory.Count; i++)
-        {
-            var message = conversationHistory[i];
-            if (message.Role == "assistant" && message.ToolCalls != null)
-            {
-                foreach (var toolCall in message.ToolCalls)
-                {
-                    var toolCallId = toolCall.Id;
-                    var hasToolResponse = conversationHistory.Any(m =>
-                        m.Role == "tool" && m.ToolCallId == toolCallId);
-
-                    if (!hasToolResponse)
-                    {
-                        // Remove the assistant message and any subsequent messages until the next user message
-                        int j = i + 1;
-                        while (j < conversationHistory.Count && conversationHistory[j].Role != "user")
-                        {
-                            conversationHistory.RemoveAt(j);
-                        }
-                        conversationHistory.RemoveAt(i);
-                        i--; // Adjust index after removal
-                        break; // Move to next message
-                    }
-                }
-            }
-        }
-    }
-
 
     public async Task<T> StructuredOutputPrompt<T>(string prompt, string model = "gpt-4") where T : class
     {

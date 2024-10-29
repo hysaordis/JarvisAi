@@ -2,5 +2,5 @@
 
 public interface IJarvisModule
 {
-    Task<Dictionary<string, object>> Execute(Dictionary<string, object> args);
+    Task<Dictionary<string, object>> Execute(Dictionary<string, object> args, CancellationToken cancellationToken = default);
 }

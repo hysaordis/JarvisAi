@@ -16,25 +16,48 @@ public class ResetActiveMemoryJarvisModule : BaseJarvisModule
         _memoryManager = memoryManager;
     }
 
-    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync()
+    protected override async Task<Dictionary<string, object>> ExecuteComponentAsync(CancellationToken cancellationToken)
     {
-        if (!ForceDelete)
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!ForceDelete)
+            {
+                return new Dictionary<string, object>
+                {
+                    { "status", "confirmation_required" },
+                    {
+                        "message",
+                        "Are you sure you want to reset the active memory? This action cannot be undone. Reply with 'force delete' to confirm."
+                    },
+                };
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            _memoryManager.Reset();
+
+            return new Dictionary<string, object>
+            {
+                { "status", "success" },
+                { "message", "Active memory has been reset to an empty dictionary." },
+            };
+        }
+        catch (OperationCanceledException)
         {
             return new Dictionary<string, object>
             {
-                { "status", "confirmation_required" },
-                {
-                    "message",
-                    "Are you sure you want to reset the active memory? This action cannot be undone. Reply with 'force delete' to confirm."
-                },
+                { "status", "cancelled" },
+                { "message", "Operation was cancelled" }
             };
         }
-
-        _memoryManager.Reset();
-        return new Dictionary<string, object>
+        catch (Exception e)
         {
-            { "status", "success" },
-            { "message", "Active memory has been reset to an empty dictionary." },
-        };
+            return new Dictionary<string, object>
+            {
+                { "status", "error" },
+                { "message", $"Failed to reset active memory: {e.Message}" }
+            };
+        }
     }
 }
