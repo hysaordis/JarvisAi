@@ -1,0 +1,6 @@
+{
+    "accessibility.voice.speechLanguage": "it-IT",
+    "accessibility.voice.speechTimeout": 1500,
+    "accessibility.voice.keywordActivation": "chatInView",
+    "accessibility.voice.autoSynthesize": "auto"
+}

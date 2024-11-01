@@ -1,8 +1,9 @@
 ﻿using Jarvis.Ai.Common.Settings;
 using Jarvis.Ai.Features.StarkArsenal.ModuleAttributes;
-using Jarvis.Ai.Features.WebDataExtraction;
 using Jarvis.Ai.Interfaces;
 using Jarvis.Ai.Models;
+using Newtonsoft.Json;
+using System.Text;
 using TextCopy;
 
 namespace Jarvis.Ai.Features.StarkArsenal.Modules;
@@ -12,14 +13,77 @@ public class ScrapToFileFromClipboardJarvisModule : BaseJarvisModule
 {
     private readonly IJarvisConfigManager _jarvisConfigManager;
     private readonly ILlmClient _llmClient;
-    private readonly FireCrawlApp _fireCrawlApp;
+    private readonly IJarvisLogger _logger;
+    private readonly string _apiKey;
+    private string _apiUrl = "https://api.firecrawl.dev";
+    private static readonly HttpClient _httpClient = new HttpClient();
 
-    public ScrapToFileFromClipboardJarvisModule(IJarvisConfigManager jarvisConfigManager, ILlmClient llmClient,
-        FireCrawlApp fireCrawlApp)
+    public ScrapToFileFromClipboardJarvisModule(
+        IJarvisConfigManager jarvisConfigManager, 
+        ILlmClient llmClient,
+        IJarvisLogger logger)
     {
         _jarvisConfigManager = jarvisConfigManager;
         _llmClient = llmClient;
-        _fireCrawlApp = fireCrawlApp;
+        _logger = logger;
+        _apiKey = jarvisConfigManager.GetValue("FIRECRAWL_API_KEY");
+        
+        if (string.IsNullOrEmpty(_apiKey))
+        {
+            _logger.LogError("No API key provided");
+            throw new ArgumentException("No API key provided");
+        }
+    }
+
+    private Dictionary<string, string> PrepareHeaders(string idempotencyKey = null)
+    {
+        var headers = new Dictionary<string, string>
+        {
+            { "Authorization", $"Bearer {_apiKey}" }
+        };
+
+        if (!string.IsNullOrEmpty(idempotencyKey))
+        {
+            headers["x-idempotency-key"] = idempotencyKey;
+        }
+
+        return headers;
+    }
+
+    private async Task<Dictionary<string, object>> ScrapeUrl(string url)
+    {
+        var headers = PrepareHeaders();
+        var scrapeParams = new Dictionary<string, object> { { "url", url } };
+        var jsonContent = JsonConvert.SerializeObject(scrapeParams);
+        var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+
+        var request = new HttpRequestMessage(HttpMethod.Post, $"{_apiUrl}/v0/scrape");
+        request.Content = content;
+
+        foreach (var header in headers)
+        {
+            request.Headers.Add(header.Key, header.Value);
+        }
+
+        var response = await _httpClient.SendAsync(request);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.OK)
+        {
+            var responseString = await response.Content.ReadAsStringAsync();
+            var responseData = JsonConvert.DeserializeObject<Dictionary<string, object>>(responseString);
+
+            if (responseData != null && responseData.ContainsKey("success") && (bool)responseData["success"] &&
+                responseData.ContainsKey("data"))
+            {
+                return JsonConvert.DeserializeObject<Dictionary<string, object>>(
+                    responseData["data"].ToString());
+            }
+            
+            _logger.LogError($"Failed to scrape URL. Error: {responseData["error"]}");
+            throw new Exception($"Failed to scrape URL. Error: {responseData["error"]}");
+        }
+
+        throw new HttpRequestException($"Failed to scrape URL. Status code: {response.StatusCode}");
     }
 
     protected override async Task<Dictionary<string, object>> ExecuteComponentAsync(CancellationToken cancellationToken)
@@ -31,11 +95,9 @@ public class ScrapToFileFromClipboardJarvisModule : BaseJarvisModule
             string scratchPadDir = _jarvisConfigManager.GetValue("SCRATCH_PAD_DIR") ?? "./scratchpad";
             Directory.CreateDirectory(scratchPadDir);
 
-            // Get URL from clipboard
             string? url = await ClipboardService.GetTextAsync();
             url = url!.Trim();
 
-            // Validate URL
             if (!Uri.IsWellFormedUriString(url, UriKind.Absolute))
             {
                 return new Dictionary<string, object>
@@ -47,7 +109,6 @@ public class ScrapToFileFromClipboardJarvisModule : BaseJarvisModule
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            // Generate file name using LLMClient
             string fileNamePrompt = $@"
 <purpose>
     Generate a suitable file name for the content of this URL: {url}
@@ -61,21 +122,19 @@ public class ScrapToFileFromClipboardJarvisModule : BaseJarvisModule
 </instructions>
 ";
 
-            CreateFileResponse fileNameResponse =
-                await _llmClient.StructuredOutputPrompt<CreateFileResponse>(fileNamePrompt,
-                    Constants.ModelNameToId[ModelName.FastModel]);
+            CreateFileResponse fileNameResponse = await _llmClient.StructuredOutputPrompt<CreateFileResponse>(
+                fileNamePrompt,
+                Constants.ModelNameToId[ModelName.FastModel]);
+                
             string fileName = fileNameResponse.FileName;
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            // Scrape URL content using FirecrawlApp
-            var scrapeResult = await _fireCrawlApp.ScrapeUrl(url);
-
+            var scrapeResult = await ScrapeUrl(url);
             string content = scrapeResult.ContainsKey("content") ? scrapeResult["content"].ToString() : "";
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            // Save to file
             string filePath = Path.Combine(scratchPadDir, fileName);
             await File.WriteAllTextAsync(filePath, content);
 
@@ -84,6 +143,8 @@ public class ScrapToFileFromClipboardJarvisModule : BaseJarvisModule
                 { "status", "success" },
                 { "message", $"Content scraped and saved to {filePath}" },
                 { "file_name", fileName },
+                { "file_path", filePath },
+                { "content_length", content.Length }
             };
         }
         catch (OperationCanceledException)
@@ -96,6 +157,7 @@ public class ScrapToFileFromClipboardJarvisModule : BaseJarvisModule
         }
         catch (Exception e)
         {
+            _logger.LogError($"Failed to scrape URL and save to file: {e.Message}");
             return new Dictionary<string, object>
             {
                 { "status", "error" },

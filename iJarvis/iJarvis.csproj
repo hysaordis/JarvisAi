@@ -16,6 +16,12 @@
       <None Update="config\active_memory.json">
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </None>
+      <None Update="config\client_secret_307889607633-s2kv6e043v2h6klasuj12ho7qent9ejq.apps.googleusercontent.com.json">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
+      <None Update="config\client_secret_307889607633-uap5g98du4bg2dd5dov1skan4rl868id.apps.googleusercontent.com.json">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
       <None Update="config\personalization.json">
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </None>

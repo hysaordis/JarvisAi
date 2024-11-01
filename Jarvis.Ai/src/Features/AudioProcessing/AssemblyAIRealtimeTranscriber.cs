@@ -2,6 +2,8 @@
 using AssemblyAI.Realtime;
 using Jarvis.Ai.Interfaces;
 
+namespace Jarvis.Ai.Features.AudioProcessing;
+
 public sealed class AssemblyAIRealtimeTranscriber : ITranscriber, IAsyncDisposable
 {
     #region Constants
@@ -24,6 +26,9 @@ public sealed class AssemblyAIRealtimeTranscriber : ITranscriber, IAsyncDisposab
     private bool _isDisposed;
     private DateTime _lastStateChangeTime;
     private bool _isSpeaking;
+    private readonly WakeWordDetector _wakeWordDetector;
+    private bool _isActivated;
+    private readonly float[] _tempBuffer;
     #endregion
 
     public event EventHandler<string> OnTranscriptionResult;
@@ -55,6 +60,10 @@ public sealed class AssemblyAIRealtimeTranscriber : ITranscriber, IAsyncDisposab
         _lastStateChangeTime = DateTime.UtcNow;
 
         _logger.LogDeviceStatus("initialized", $"Sample Rate: {SAMPLE_RATE}Hz, Channels: {CHANNELS}");
+
+        _wakeWordDetector = new WakeWordDetector(logger);
+        _wakeWordDetector.WakeWordDetected += OnWakeWordDetected;
+        _tempBuffer = new float[SAMPLE_RATE]; // 1 second buffer
     }
 
     public async Task InitializeAsync(CancellationToken cancellationToken)
@@ -102,26 +111,26 @@ public sealed class AssemblyAIRealtimeTranscriber : ITranscriber, IAsyncDisposab
         {
             if (!_isListening || _cts.Token.IsCancellationRequested) return;
 
-            float rms = CalculateRMS(e.Buffer, e.BytesRecorded);
-            bool currentlySpeaking = rms > SILENCE_THRESHOLD;
-
-            if (currentlySpeaking != _isSpeaking)
+            // Convert bytes to float array for wake word detection
+            int bytesPerSample = _waveIn.WaveFormat.BitsPerSample / 8;
+            int sampleCount = e.BytesRecorded / bytesPerSample;
+            
+            for (int i = 0; i < sampleCount; i++)
             {
-                var timeSinceLastChange = DateTime.UtcNow - _lastStateChangeTime;
-                if (timeSinceLastChange.TotalMilliseconds > 500)
-                {
-                    _isSpeaking = currentlySpeaking;
-                    _lastStateChangeTime = DateTime.UtcNow;
-
-                    if (_isSpeaking)
-                    {
-                        _logger.LogVoiceActivity(true, rms);
-                    }
-                }
+                short sample = BitConverter.ToInt16(e.Buffer, i * bytesPerSample);
+                _tempBuffer[i] = sample / 32768f;
             }
 
-            var buffer = new Memory<byte>(e.Buffer, 0, e.BytesRecorded);
-            await _transcriber.SendAudioAsync(buffer).ConfigureAwait(false);
+            // Always process audio for wake word detection
+            await _wakeWordDetector.ProcessAudioSegment(_tempBuffer);
+
+            // Only send audio to AssemblyAI if activated
+            if (_isActivated)
+            {
+                _logger.LogTranscriptionProgress("transcribing", "Sending audio to AssemblyAI");
+                var buffer = new Memory<byte>(e.Buffer, 0, e.BytesRecorded);
+                await _transcriber.SendAudioAsync(buffer).ConfigureAwait(false);
+            }
         }
         catch (Exception ex)
         {
@@ -201,6 +210,15 @@ public sealed class AssemblyAIRealtimeTranscriber : ITranscriber, IAsyncDisposab
         }
     }
 
+    private void OnWakeWordDetected(object sender, bool detected)
+    {
+        if (!_isActivated && detected)
+        {
+            _isActivated = true;
+            _logger.LogTranscriptionProgress("activated", "Wake word detected, starting transcription");
+        }
+    }
+
     private void ThrowIfNotInitialized()
     {
         if (!_isInitialized)
@@ -233,6 +251,7 @@ public sealed class AssemblyAIRealtimeTranscriber : ITranscriber, IAsyncDisposab
 
             _waveIn?.Dispose();
             _cts?.Dispose();
+            _wakeWordDetector.Dispose();
 
             _isDisposed = true;
             _logger.LogDeviceStatus("stopping", "Resources cleaned up successfully");

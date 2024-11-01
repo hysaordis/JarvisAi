@@ -8,30 +8,9 @@ using Newtonsoft.Json;
 
 namespace Jarvis.Ai;
 
-public class ResponseMessage
-{
-    [JsonProperty("role")]
-    public string Role { get; set; }
-
-    [JsonProperty("content")]
-    public string Content { get; set; }
-
-    [JsonProperty("tool_calls", NullValueHandling = NullValueHandling.Ignore)]
-    public List<OllamaTools> ToolCalls { get; set; }
-}
-
-public class OllamaTools
-{
-    [JsonProperty("type")]
-    public string Type { get; set; }
-
-    [JsonProperty("name")]
-    public string Name { get; set; }
-
-    [JsonProperty("parameters")]
-    public Dictionary<string, object> Parameters { get; set; }
-}
-
+/// <summary>
+/// Represents the main agent responsible for handling transcription, processing commands, and interacting with various modules.
+/// </summary>
 public class AlitaAgent : IJarvis, IDisposable
 {
     #region Private Fields
@@ -52,6 +31,16 @@ public class AlitaAgent : IJarvis, IDisposable
     #endregion
 
     #region Constructor
+    /// <summary>
+    /// Initializes a new instance of the <see cref="AlitaAgent"/> class.
+    /// </summary>
+    /// <param name="logger">The logger instance for logging information.</param>
+    /// <param name="moduleRegistry">The module registry for executing commands.</param>
+    /// <param name="transcriptionService">The transcription service for handling audio input.</param>
+    /// <param name="audioOutputModule">The audio output module for speaking responses.</param>
+    /// <param name="llmClient">The LLM client for processing commands.</param>
+    /// <param name="starkProtocols">The protocols containing session instructions.</param>
+    /// <param name="conversationStore">The store for saving and retrieving conversation history.</param>
     public AlitaAgent(
         IJarvisLogger logger,
         IModuleRegistry moduleRegistry,
@@ -82,6 +71,11 @@ public class AlitaAgent : IJarvis, IDisposable
     #endregion
 
     #region IJarvis Implementation
+    /// <summary>
+    /// Initializes the Alita Agent asynchronously.
+    /// </summary>
+    /// <param name="initialCommands">Optional initial commands to execute after initialization.</param>
+    /// <param name="cancellationToken">Token to cancel the operation if needed.</param>
     public async Task InitializeAsync(string[]? initialCommands, CancellationToken cancellationToken)
     {
 
@@ -127,7 +121,7 @@ public class AlitaAgent : IJarvis, IDisposable
                 Content = _starkProtocols.SessionInstructions
             });
 
-            var oldMessages = await _conversationStore.GetAllMessagesAsync();
+            var messages = await _conversationStore.GetAllMessagesAsync();
 
             // Request an introduction from the AI
             await _conversationStore.SaveMessageAsync(new Message
@@ -137,9 +131,12 @@ public class AlitaAgent : IJarvis, IDisposable
                 "briefly describe the task and ask if they'd like to proceed with its completion."
             });
 
-            // Get AI's introduction
+            // Get updated messages including the greeting request
+            messages = await _conversationStore.GetAllMessagesAsync();
+
+            // Get AI's introduction with the complete message history
             var introductionResponse = await _llmClient.SendCommandToLlmAsync(
-                null,
+                messages,
                 cancellationToken
             );
 
@@ -157,11 +154,21 @@ public class AlitaAgent : IJarvis, IDisposable
         }
     }
 
+    /// <summary>
+    /// Processes the audio input asynchronously.
+    /// </summary>
+    /// <param name="audioData">The audio data to process.</param>
+    /// <param name="cancellationToken">Token to cancel the operation if needed.</param>
     public Task ProcessAudioInputAsync(byte[] audioData, CancellationToken cancellationToken)
     {
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Listens for a response asynchronously.
+    /// </summary>
+    /// <param name="cancellationToken">Token to cancel the operation if needed.</param>
+    /// <returns>The transcription of the response.</returns>
     public async Task<string> ListenForResponseAsync(CancellationToken cancellationToken)
     {
         try
@@ -216,6 +223,11 @@ public class AlitaAgent : IJarvis, IDisposable
         }
     }
 
+    /// <summary>
+    /// Executes the given commands asynchronously.
+    /// </summary>
+    /// <param name="commands">The commands to execute.</param>
+    /// <param name="cancellationToken">Token to cancel the operation if needed.</param>
     public async Task ExecuteCommandsAsync(string[] commands, CancellationToken cancellationToken)
     {
         foreach (var command in commands)
@@ -231,6 +243,9 @@ public class AlitaAgent : IJarvis, IDisposable
         }
     }
 
+    /// <summary>
+    /// Shuts down the Alita Agent asynchronously.
+    /// </summary>
     public Task ShutdownAsync()
     {
         _logger.LogAgentStatus("shutdown", "Initiating shutdown sequence");
@@ -241,6 +256,10 @@ public class AlitaAgent : IJarvis, IDisposable
     #endregion
 
     #region Audio Processing
+    /// <summary>
+    /// Starts listening for audio input asynchronously.
+    /// </summary>
+    /// <param name="cancellationToken">Token to cancel the operation if needed.</param>
     private async Task StartListeningAsync(CancellationToken cancellationToken)
     {
         _listeningCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -248,11 +267,21 @@ public class AlitaAgent : IJarvis, IDisposable
         _logger.LogInformation("Started listening");
     }
 
+    /// <summary>
+    /// Handles partial transcription results.
+    /// </summary>
+    /// <param name="sender">The sender of the event.</param>
+    /// <param name="e">The partial transcription result.</param>
     private void HandlePartialTranscriptionResult(object? sender, string e)
     {
         CancelCurrentProcessing();
     }
 
+    /// <summary>
+    /// Handles transcription results.
+    /// </summary>
+    /// <param name="sender">The sender of the event.</param>
+    /// <param name="transcription">The transcription result.</param>
     private void HandleTranscriptionResult(object sender, string transcription)
     {
         if (string.IsNullOrEmpty(transcription)) return;
@@ -276,6 +305,11 @@ public class AlitaAgent : IJarvis, IDisposable
     #endregion
 
     #region Command Processing
+    /// <summary>
+    /// Processes a command asynchronously.
+    /// </summary>
+    /// <param name="command">The command to process.</param>
+    /// <param name="externalCancellationToken">Token to cancel the operation if needed.</param>
     private async Task ProcessCommandAsync(string command, CancellationToken externalCancellationToken)
     {
         if (_isProcessing)
@@ -327,6 +361,11 @@ public class AlitaAgent : IJarvis, IDisposable
         }
     }
 
+    /// <summary>
+    /// Executes a tool call asynchronously.
+    /// </summary>
+    /// <param name="functionCall">The function call to execute.</param>
+    /// <param name="cancellationToken">Token to cancel the operation if needed.</param>
     private async Task ExecuteToolCallAsync(FunctionCall functionCall, CancellationToken cancellationToken)
     {
         try
@@ -362,6 +401,9 @@ public class AlitaAgent : IJarvis, IDisposable
         }
     }
 
+    /// <summary>
+    /// Cancels the current processing.
+    /// </summary>
     private void CancelCurrentProcessing()
     {
         try
@@ -382,6 +424,11 @@ public class AlitaAgent : IJarvis, IDisposable
     #endregion
 
     #region Error Handling
+    /// <summary>
+    /// Handles errors that occur during processing.
+    /// </summary>
+    /// <param name="ex">The exception that occurred.</param>
+    /// <param name="cancellationToken">Token to cancel the operation if needed.</param>
     private async Task HandleErrorAsync(Exception ex, CancellationToken cancellationToken)
     {
         _logger.LogError($"Error occurred: {ex.Message}");
@@ -400,6 +447,10 @@ public class AlitaAgent : IJarvis, IDisposable
     #endregion
 
     #region IDisposable Implementation
+    /// <summary>
+    /// Disposes the resources used by the Alita Agent.
+    /// </summary>
+    /// <param name="disposing">Indicates whether the method is called from Dispose.</param>
     protected virtual void Dispose(bool disposing)
     {
         if (_isDisposed) return;
@@ -420,12 +471,18 @@ public class AlitaAgent : IJarvis, IDisposable
         _isDisposed = true;
     }
 
+    /// <summary>
+    /// Disposes the Alita Agent.
+    /// </summary>
     public void Dispose()
     {
         Dispose(true);
         GC.SuppressFinalize(this);
     }
 
+    /// <summary>
+    /// Finalizes the Alita Agent.
+    /// </summary>
     ~AlitaAgent()
     {
         Dispose(false);

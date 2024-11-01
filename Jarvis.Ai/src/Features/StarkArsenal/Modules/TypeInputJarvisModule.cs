@@ -4,7 +4,7 @@ using Jarvis.Ai.Features.StarkArsenal.ModuleAttributes;
 namespace Jarvis.Ai.Features.StarkArsenal.Modules;
 
 [JarvisTacticalModule("Type the specified text (Simulates keyboard).")]
-public class TypeInputJarvisModule : BaseJarvisModule
+public class SimulateKeyboardInputJarvisModule : BaseJarvisModule
 {
     [TacticalComponent("The text to type using simulated keyboard input.", "string", true)]
     public string Text { get; set; }

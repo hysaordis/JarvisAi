@@ -1,5 +1,4 @@
-﻿using System.Net.Http;
-using System.Reflection;
+﻿using System.Reflection;
 using System.Text;
 using Jarvis.Ai.Common.Settings;
 using Jarvis.Ai.Interfaces;
@@ -8,44 +7,8 @@ using Jarvis.Ai.Persistence;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Serialization;
-using OllamaSharp.Models.Chat;
 
 namespace Jarvis.Ai.LLM;
-
-public class Message
-{
-    [JsonProperty("role")]
-    public string Role { get; set; }
-
-    [JsonProperty("content", NullValueHandling = NullValueHandling.Ignore)]
-    public string Content { get; set; }
-
-    [JsonProperty("tool_calls", NullValueHandling = NullValueHandling.Ignore)]
-    public List<FunctionCall> ToolCalls { get; set; }
-
-    [JsonProperty("tool_call_id", NullValueHandling = NullValueHandling.Ignore)]
-    public string ToolCallId { get; set; }
-}
-public class FunctionCall
-{
-    [JsonProperty("id")]
-    public string Id { get; set; }
-
-    [JsonProperty("type")]
-    public string Type { get; set; }
-
-    [JsonProperty("function")]
-    public FunctionDetail Function { get; set; }
-}
-
-public class FunctionDetail
-{
-    [JsonProperty("name")]
-    public string Name { get; set; }
-
-    [JsonProperty("arguments")]
-    public Dictionary<string, object> Arguments { get; set; }
-}
 
 public class OpenAiLlmClient : ILlmClient
 {
@@ -68,7 +31,7 @@ public class OpenAiLlmClient : ILlmClient
         _conversationStore = conversationStore;
     }
 
-    public async Task<Message> SendCommandToLlmAsync(List<Message> message, CancellationToken cancellationToken)
+    public async Task<Message> SendCommandToLlmAsync(List<Message> messages, CancellationToken cancellationToken)
     {
         try
         {
@@ -77,7 +40,7 @@ public class OpenAiLlmClient : ILlmClient
 
             var conversationHistory = await _conversationStore.GetAllMessagesAsync();
 
-            var messages = conversationHistory.Select(msg =>
+            var messagesPrepared = conversationHistory.Select(msg =>
             {
                 var msgDict = new Dictionary<string, object>
                 {
@@ -108,7 +71,7 @@ public class OpenAiLlmClient : ILlmClient
             var requestBody = new
             {
                 model = Constants.ModelNameToId[Enum.Parse<ModelName>(ModelName.BaseModel.ToString())],
-                messages = messages,
+                messages = messagesPrepared,
                 tools = openAiTools,
                 tool_choice = "auto",
                 stream = false

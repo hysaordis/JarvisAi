@@ -9,6 +9,7 @@
 
 	<ItemGroup>
 		<PackageReference Include="AssemblyAI" Version="1.1.4" />
+		<PackageReference Include="Google.Apis.Gmail.v1" Version="1.67.0.3287" />
 		<PackageReference Include="Microsoft.Extensions.Configuration" Version="8.0.0" />
 		<PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="8.0.0" />
 		<PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="8.0.1" />
@@ -22,9 +23,9 @@
 		<PackageReference Include="SixLabors.ImageSharp" Version="3.1.5" />
 		<PackageReference Include="System.Net.WebSockets.Client" Version="4.3.2" />
 		<PackageReference Include="TextCopy" Version="6.2.1" />
-
 		<PackageReference Include="Whisper.net" Version="1.5.0" />
 		<PackageReference Include="Whisper.net.Runtime" Version="1.5.0" />
+		<PackageReference Include="System.Speech" Version="8.0.0" />
 	</ItemGroup>
 	<ItemGroup>
 		<None Update="config\personalization.json">

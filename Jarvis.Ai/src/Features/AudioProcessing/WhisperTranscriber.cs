@@ -17,6 +17,9 @@ public sealed class WhisperTranscriber : ITranscriber
     private const int BUFFER_MILLISECONDS = 100; // Increased for more stable processing
     private const int MAX_QUEUE_SIZE = SAMPLE_RATE * BUFFER_SECONDS;
     private const float SILENCE_THRESHOLD = 0.01f;
+    private const string MODEL_URL = "https://huggingface.co/sandrohanea/whisper.net/resolve/main/classic/ggml-base.bin";
+    private const string MODEL_FILENAME = "ggml-base.bin";
+    private const string DEFAULT_MODEL_PATH = "Jarvis/Models/Whisper"; // This is now a relative path
     #endregion
 
     private readonly string _whisperModelPath;
@@ -45,8 +48,19 @@ public sealed class WhisperTranscriber : ITranscriber
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _configManager = configManager ?? throw new ArgumentNullException(nameof(configManager));
-        _whisperModelPath = _configManager.GetValue("WHISPER_MODEL_PATH")
-                           ?? throw new ArgumentNullException("WHISPER_MODEL_PATH");
+        
+        // Get model path from config or use default AppData path
+        string configuredPath = _configManager.GetValue("WHISPER_MODEL_PATH");
+        if (!string.IsNullOrEmpty(configuredPath))
+        {
+            _whisperModelPath = configuredPath;
+        }
+        else
+        {
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string modelDir = Path.Combine(appData, DEFAULT_MODEL_PATH);
+            _whisperModelPath = Path.Combine(modelDir, MODEL_FILENAME);
+        }
 
         _transcriptionBuilder = new StringBuilder();
         _audioBuffer = new RingBuffer<float>(MAX_QUEUE_SIZE);
@@ -54,8 +68,48 @@ public sealed class WhisperTranscriber : ITranscriber
         _lastSilenceTime = DateTime.UtcNow;
     }
 
+    private async Task EnsureModelDownloaded()
+    {
+        if (string.IsNullOrEmpty(_whisperModelPath))
+        {
+            throw new InvalidOperationException("Whisper model path is not configured");
+        }
+
+        if (!File.Exists(_whisperModelPath))
+        {
+            _logger.LogDeviceStatus("downloading", "Downloading Whisper model for transcription...");
+            
+            string modelDirectory = Path.GetDirectoryName(_whisperModelPath);
+            if (!string.IsNullOrEmpty(modelDirectory))
+            {
+                Directory.CreateDirectory(modelDirectory);
+            }
+
+            using (var httpClient = new HttpClient())
+            using (var response = await httpClient.GetAsync(MODEL_URL))
+            {
+                if (!response.IsSuccessStatusCode)
+                {
+                    throw new HttpRequestException($"Failed to download model: {response.StatusCode}");
+                }
+
+                using (var fs = new FileStream(_whisperModelPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    await response.Content.CopyToAsync(fs);
+                }
+            }
+
+            _logger.LogDeviceStatus("downloaded", "Whisper model downloaded successfully.");
+        }
+    }
+
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
+        if (!_isInitialized)
+        {
+            await EnsureModelDownloaded();
+        }
+
         if (_isInitialized)
         {
             _logger.LogTranscriberError("initialization", "Transcriber already initialized");
