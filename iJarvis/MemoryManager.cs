@@ -3,7 +3,7 @@ using System.Xml.Linq;
 using Jarvis.Ai.Common.Utils;
 using Jarvis.Ai.Interfaces;
 
-namespace Jarvis.Console;
+namespace Jarvis.Service;
 
 public class MemoryManager : IMemoryManager
 {

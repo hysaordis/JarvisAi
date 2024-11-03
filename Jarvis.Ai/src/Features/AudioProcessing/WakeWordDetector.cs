@@ -11,7 +11,7 @@ public class WakeWordDetector : IDisposable
     private const int SAMPLE_RATE = 16000;
     private const float ACTIVATION_THRESHOLD = 0.7f;
     private const int BUFFER_SIZE = SAMPLE_RATE * 2; // 2 seconds buffer
-    private const string MODEL_URL = "https://huggingface.co/sandrohanea/whisper.net/blob/main/classic/ggml-base.bin";
+    private const string MODEL_URL = "https://huggingface.co/sandrohanea/whisper.net/resolve/main/classic/ggml-base.bin";
     private const string MODEL_FILENAME = "ggml-base.bin";
     private static readonly string MODEL_PATH = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "JarvisAI", MODEL_FILENAME);
 

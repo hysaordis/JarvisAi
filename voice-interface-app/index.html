@@ -5,23 +5,45 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Voice Interface</title>
+    <meta name="theme-color" content="transparent">
     <style>
+      :root {
+        background: transparent !important;
+      }
       html {
-        background: transparent;
+        background: transparent !important;
       }
       body {
-        background: transparent;
+        background: transparent !important;
         margin: 0;
         padding: 0;
-        user-select: none; /* Previene la selezione del testo durante il drag */
+        overflow: hidden;
+        user-select: none;
+      }
+      #root {
+        background: transparent !important;
+        width: 100%;
+        height: 100%;
       }
       [data-tauri-drag-region] {
         cursor: move;
+        user-select: none;
+        -webkit-user-select: none;
       }
     </style>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <!-- Aggiungi questo script se stai usando Tauri -->
+    <script type="module">
+      try {
+        import('@tauri-apps/api').catch(() => {
+          console.warn('Tauri API not available - running in browser mode');
+        });
+      } catch (e) {
+        console.warn('Tauri import failed:', e);
+      }
+    </script>
   </body>
 </html>

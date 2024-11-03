@@ -6,25 +6,42 @@
     "distDir": "../dist"
   },
   "package": {
-    "productName": "VoiceInterface",
+    "productName": "voice-interface-app",
     "version": "0.1.0"
   },
   "tauri": {
     "allowlist": {
+      "all": false,
+      "fs": {
+        "all": true,
+        "readFile": true,
+        "writeFile": true,
+        "readDir": true,
+        "scope": ["$APPDATA/*", "$APPDATA/settings.dat"]
+      },
+      "path": {
+        "all": true
+      },
       "window": {
+        "all": false,
+        "center": true,
+        "setDecorations": true,
+        "setAlwaysOnTop": true,
+        "setIgnoreCursorEvents": true,
         "show": true,
         "hide": true,
-        "close": true
+        "startDragging": true
+      },
+      "shell": {
+        "all": false,
+        "open": true
       }
-    },
-    "systemTray": {
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": true
     },
     "bundle": {
       "active": true,
-      "targets": "all",
-      "identifier": "com.voice-interface.app",
+      "targets": ["deb", "msi", "app", "dmg"],
+      "identifier": "com.voice-interface-app.dev",
+      "publisher": "Alita",
       "icon": [
         "icons/32x32.png",
         "icons/128x128.png",
@@ -33,19 +50,27 @@
         "icons/icon.ico"
       ]
     },
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: https://asset.localhost data:; style-src 'self' 'unsafe-inline'; connect-src 'self' https://localhost:* ws://localhost:*"
+    },
+    "systemTray": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true
+    },
     "windows": [
       {
         "fullscreen": false,
-        "height": 200,
-        "width": 200,
-        "decorations": false,
-        "transparent": true,
+        "height": 230,
+        "width": 180,
         "resizable": false,
-        "title": "VoiceInterface",
+        "title": "voice-interface-app",
+        "transparent": true,
+        "decorations": false,
         "alwaysOnTop": true,
-        "x": 1720,
-        "y": 10,
-        "skipTaskbar": true
+        "center": true,
+        "skipTaskbar": true,
+        "visible": true,
+        "focus": true
       }
     ]
   }

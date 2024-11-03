@@ -1,7 +1,6 @@
 ﻿using Jarvis.Ai.Interfaces;
-using Microsoft.Extensions.Configuration;
 
-namespace Jarvis.Console.config;
+namespace Jarvis.Service.Config;
 
 public class JarvisConfigManager : IJarvisConfigManager
 {

@@ -339,3 +339,5 @@ config/appsettings.local.json
 /iJarvis/Properties/launchSettings.json
 /runtime_time_table.json
 /iJarvis/conversations.json
+/iJarvis/config/client_secret_307889607633-s2kv6e043v2h6klasuj12ho7qent9ejq.apps.googleusercontent.com.json
+/iJarvis/config/token/Google.Apis.Auth.OAuth2.Responses.TokenResponse-user

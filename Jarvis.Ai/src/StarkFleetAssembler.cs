@@ -4,6 +4,7 @@ using Jarvis.Ai.Features.StarkArsenal;
 using Jarvis.Ai.Interfaces;
 using Jarvis.Ai.LLM;
 using Jarvis.Ai.Persistence;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Jarvis.Ai;
@@ -19,22 +20,32 @@ public static class StarkFleetAssembler
     /// </summary>
     /// <param name="services">The IServiceCollection to which services are added.</param>
     /// <returns>The updated IServiceCollection.</returns>
-    public static IServiceCollection AssembleJarvisSystems(this IServiceCollection services)
+    public static IServiceCollection AssembleJarvisSystems(this IServiceCollection services, Microsoft.Extensions.Configuration.IConfiguration _configuration)
     {
-        // Register the Brain as a singleton service use try catch block
-        // services.AddSingleton<ILlmClient, OpenAiLlmClient>();
-        services.AddSingleton<ILlmClient, OllamaLlmClient>();
+        var transcriberType = _configuration.GetValue<string>("LLM_TYPE") ?? "ollama";
 
-        
+        switch (transcriberType)
+        {
+            case "ollama":
+                services.AddSingleton<ILlmClient, OllamaLlmClient>();
+                break;
+            case "openai":
+                services.AddSingleton<ILlmClient, OpenAiLlmClient>();
+                break;
+            default:
+                services.AddSingleton<ILlmClient, OllamaLlmClient>();
+                break;
+        }
+
         // Register LLM Factory and Client
         // All Modules that Jarvis can use
         // Register the module registry as a singleton service
         services.AddSingleton<IModuleRegistry, ModuleRegistry>();
-        
+
         // All the conversations that Jarvis has had
         // Register the conversation store as a singleton service
         services.AddSingleton<IConversationStore, ConversationStore>();
-        
+
         // Initialize the StarkProtocols example: 
         // System prompts for the AI assistant
         // Register the StarkProtocols as a singleton service

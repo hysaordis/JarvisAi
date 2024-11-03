@@ -2,7 +2,6 @@
     all(not(debug_assertions), target_os = "windows"),
     windows_subsystem = "windows"
 )]
-
 use tauri::{CustomMenuItem, SystemTray, SystemTrayMenu, SystemTrayEvent, WindowEvent};
 use tauri::Manager;
 
@@ -10,12 +9,12 @@ fn main() {
     let quit = CustomMenuItem::new("quit".to_string(), "Quit");
     let hide = CustomMenuItem::new("hide".to_string(), "Hide");
     let show = CustomMenuItem::new("show".to_string(), "Show");
-    
+   
     let tray_menu = SystemTrayMenu::new()
         .add_item(show)
         .add_item(hide)
         .add_item(quit);
-        
+       
     let system_tray = SystemTray::new()
         .with_menu(tray_menu);
 
@@ -23,36 +22,42 @@ fn main() {
         .system_tray(system_tray)
         .setup(|app| {
             let window = app.get_window("main").unwrap();
+            window.set_decorations(false)?;
             window.set_always_on_top(true)?;
+            window.show()?;
             Ok(())
         })
         .on_system_tray_event(|app, event| match event {
             SystemTrayEvent::MenuItemClick { id, .. } => {
+                let window = app.get_window("main").unwrap();
                 match id.as_str() {
                     "quit" => {
                         std::process::exit(0);
                     }
                     "hide" => {
-                        let window = app.get_window("main").unwrap();
                         window.hide().unwrap();
                     }
                     "show" => {
-                        let window = app.get_window("main").unwrap();
                         window.show().unwrap();
                         window.set_always_on_top(true).unwrap();
+                        window.center().unwrap();
                     }
                     _ => {}
+                }
+            }
+            SystemTrayEvent::LeftClick { .. } => {
+                let window = app.get_window("main").unwrap();
+                if !window.is_visible().unwrap() {
+                    window.show().unwrap();
+                    window.set_always_on_top(true).unwrap();
                 }
             }
             _ => {}
         })
         .on_window_event(|event| {
-            match event.event() {
-                WindowEvent::CloseRequested { api, .. } => {
-                    event.window().hide().unwrap();
-                    api.prevent_close();
-                }
-                _ => {}
+            if let WindowEvent::CloseRequested { api, .. } = event.event() {
+                event.window().hide().unwrap();
+                api.prevent_close();
             }
         })
         .run(tauri::generate_context!())

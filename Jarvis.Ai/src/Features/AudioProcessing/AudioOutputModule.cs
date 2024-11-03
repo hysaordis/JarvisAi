@@ -1,5 +1,6 @@
 ﻿using System.Net.Http.Headers;
 using System.Text;
+using Jarvis.Ai.Core.Events;
 using Jarvis.Ai.Interfaces;
 using NAudio.Wave;
 using Newtonsoft.Json;
@@ -101,6 +102,10 @@ public class AudioOutputModule : IAudioOutputModule
             waveOut.Init(mp3Reader);
             waveOut.PlaybackStopped += (s, e) =>
             {
+                EventBus.Instance.Publish(new SystemStateEvent
+                {
+                    State = SystremState.Listening.ToString()
+                });
                 if (e.Exception != null)
                 {
                     _jarvisLogger.LogAgentStatus("error", $"Assistant speech error: {e.Exception.Message}");
@@ -112,6 +117,11 @@ public class AudioOutputModule : IAudioOutputModule
                     tcs.SetResult(true);
                 }
             };
+
+            EventBus.Instance.Publish(new SystemStateEvent
+            {
+                State = SystremState.Playing.ToString()
+            });
 
             waveOut.Play();
 

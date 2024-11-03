@@ -2,16 +2,19 @@
 using Jarvis.Ai.Features.AudioProcessing;
 using Jarvis.Ai.Features.VisualOutput;
 using Jarvis.Ai.Interfaces;
-using Jarvis.Console.config;
-using Microsoft.Extensions.DependencyInjection;
-using System;
+using Jarvis.Service.Config;
+using Jarvis.Service.Hubs;
+using Microsoft.AspNetCore.Http.Connections;
 
-namespace Jarvis.Console;
+namespace Jarvis.Service;
 
 public class Startup
 {
-    public Startup()
+    private readonly IConfiguration _configuration;
+
+    public Startup(IConfiguration configuration)
     {
+        _configuration = configuration;
     }
 
     public void ConfigureServices(IServiceCollection services)
@@ -20,24 +23,21 @@ public class Startup
         services.AddSingleton<IJarvisConfigManager, JarvisConfigManager>();
         services.AddSingleton<IJarvisLogger, Logger>();
 
-        // Get config manager to use for configuration
-        var serviceProvider = services.BuildServiceProvider();
-        var configManager = serviceProvider.GetRequiredService<IJarvisConfigManager>();
+        var transcriberType = _configuration.GetValue<string>("TranscriberType") ?? "1";
 
         // Register core Jarvis systems
-        services.AssembleJarvisSystems();
+        services.AssembleJarvisSystems(_configuration);
 
         // Register input/output modules
         services.AddSingleton<IVoiceInputModule, VoiceInputModule>();
-        // services.AddSingleton<IAudioOutputModule, AudioOutputModule>();
-        services.AddSingleton<IAudioOutputModule, WindowsAudioOutputModule>();
+        services.AddSingleton<IAudioOutputModule, AudioOutputModule>();
+        //services.AddSingleton<IAudioOutputModule, WindowsAudioOutputModule>();
         services.AddSingleton<IDisplayModule, VisualInterfaceModule>();
 
         // Register memory management
         services.AddSingleton<IMemoryManager, MemoryManager>();
 
-        // Register transcribers based on configuration from config manager
-        var transcriberType = configManager.GetValue("TranscriberType");
+        // Update transcriber registration
         switch (transcriberType)
         {
             case "3":
@@ -54,15 +54,89 @@ public class Startup
 
         // Register the main AI agent (only one should be active at a time)
         //services.AddSingleton<IJarvis, JarvisAgent>();
-        services.AddSingleton<IJarvis, AlitaAgent>();
+        services.AddSingleton<AlitaAgent>();
 
         // Register IronManSuit which depends on IJarvis
         services.AddSingleton<IronManSuit>();
+
+        // Register ASP.NET Core services
+        services.AddEndpointsApiExplorer();
+        services.AddSwaggerGen();
+
+        // Add MVC Core services
+        services.AddMvcCore();
+
+        // Add SignalR with CORS first
+        services.AddSignalR(options =>
+        {
+            options.EnableDetailedErrors = true;
+            options.MaximumReceiveMessageSize = 102400000;
+        }).AddJsonProtocol(options =>
+        {
+            options.PayloadSerializerOptions.PropertyNamingPolicy = null;
+        });
+
+        // Then configure CORS
+        services.AddCors(options =>
+        {
+            options.AddDefaultPolicy(builder =>
+            {
+                builder.WithOrigins("http://localhost:1420", "tauri://localhost")
+                       .AllowAnyMethod()
+                       .AllowAnyHeader()
+                       .AllowCredentials()
+                       .SetIsOriginAllowed(_ => true); // Be careful with this in production
+            });
+        });
+
+        // Add required HTTP services
+        services.AddHttpContextAccessor();
+        services.AddRouting();
+
+        // Add controllers if needed
+        services.AddControllers();
+
+        // Register your Hub
+        services.AddSingleton<AlitaHub>();
     }
 
-    public void Configure(IServiceProvider serviceProvider)
+    public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
     {
-        var moduleRegistry = serviceProvider.GetRequiredService<IModuleRegistry>();
+        if (env.IsDevelopment())
+        {
+            app.UseDeveloperExceptionPage();
+        }
+
+        // Enable WebSocket support
+        app.UseWebSockets();
+
+        // Abilita sempre Swagger in fase di test
+        app.UseSwagger();
+        app.UseSwaggerUI();
+
+        // Configure the HTTP request pipeline
+        app.UseRouting();
+
+        // CORS must be between UseRouting and UseEndpoints
+        app.UseCors();
+
+        app.UseAuthorization();
+
+        app.UseEndpoints(endpoints =>
+        {
+            endpoints.MapHub<AlitaHub>("/alitahub", options =>
+            {
+                options.Transports =
+                    HttpTransportType.WebSockets |
+                    HttpTransportType.LongPolling;
+                options.WebSockets.CloseTimeout = TimeSpan.FromSeconds(30);
+            });
+
+            // Map controllers if you have any
+            endpoints.MapControllers();
+        });
+
+        var moduleRegistry = app.ApplicationServices.GetRequiredService<IModuleRegistry>();
         moduleRegistry.RegisterCommandsFromAssembly();
     }
 }

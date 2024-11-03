@@ -6,7 +6,7 @@ using Newtonsoft.Json;
 
 namespace Jarvis.Ai
 {
-    public class JarvisAgent : IJarvis
+    public class JarvisAgent
     {
         private ClientWebSocket _networkInterface;
         private dynamic _pendingTask;
@@ -60,6 +60,8 @@ namespace Jarvis.Ai
 
             await _networkInterface.ConnectAsync(new Uri(_serverEndpoint), cancellationToken);
         }
+
+
 
         private async Task ConfigureSessionAsync(CancellationToken cancellationToken)
         {

@@ -1,6 +1,7 @@
 ﻿using NAudio.Wave;
 using AssemblyAI.Realtime;
 using Jarvis.Ai.Interfaces;
+using Jarvis.Ai.Core.Events;
 
 namespace Jarvis.Ai.Features.AudioProcessing;
 
@@ -11,9 +12,10 @@ public sealed class AssemblyAIRealtimeTranscriber : ITranscriber, IAsyncDisposab
     private const int BITS_PER_SAMPLE = 16;
     private const int CHANNELS = 1;
     private const int BUFFER_MILLISECONDS = 100;
-    private const float SILENCE_THRESHOLD = 0.01f;
     private const string COMPONENT_NAME = "AssemblyAI Realtime";
     private const string API_KEY_CONFIG_NAME = "ASSEMBLYAI_API_KEY";
+    private const float MAX_16BIT_VALUE = 32768f; // Massimo valore per audio 16-bit
+    private const int NORMALIZED_SCALE = 100; // Scala da 0-100
     #endregion
 
     #region Private Fields
@@ -22,13 +24,11 @@ public sealed class AssemblyAIRealtimeTranscriber : ITranscriber, IAsyncDisposab
     private readonly WaveInEvent _waveIn;
     private CancellationTokenSource _cts;
     private bool _isInitialized;
-    private bool _isListening;
+    private bool _isListening = false;
     private bool _isDisposed;
     private DateTime _lastStateChangeTime;
-    private bool _isSpeaking;
-    private readonly WakeWordDetector _wakeWordDetector;
-    private bool _isActivated;
-    private readonly float[] _tempBuffer;
+    private readonly SemaphoreSlim _reconnectSemaphore = new SemaphoreSlim(1, 1);
+    private bool _isReconnecting;
     #endregion
 
     public event EventHandler<string> OnTranscriptionResult;
@@ -60,10 +60,6 @@ public sealed class AssemblyAIRealtimeTranscriber : ITranscriber, IAsyncDisposab
         _lastStateChangeTime = DateTime.UtcNow;
 
         _logger.LogDeviceStatus("initialized", $"Sample Rate: {SAMPLE_RATE}Hz, Channels: {CHANNELS}");
-
-        _wakeWordDetector = new WakeWordDetector(logger);
-        _wakeWordDetector.WakeWordDetected += OnWakeWordDetected;
-        _tempBuffer = new float[SAMPLE_RATE]; // 1 second buffer
     }
 
     public async Task InitializeAsync(CancellationToken cancellationToken)
@@ -74,34 +70,87 @@ public sealed class AssemblyAIRealtimeTranscriber : ITranscriber, IAsyncDisposab
             return;
         }
 
+        await ConnectWithRetryAsync(cancellationToken);
+    }
+
+    private async Task ConnectWithRetryAsync(CancellationToken cancellationToken)
+    {
+        int retryCount = 0;
+        const int maxRetries = 3;
+        const int retryDelayMs = 2000;
+
+        while (retryCount < maxRetries)
+        {
+            try
+            {
+                _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                await SetupTranscriberEventsAsync();
+                await _transcriber.ConnectAsync();
+                _isInitialized = true;
+                _logger.LogTranscriptionProgress("ready", "Connected to AssemblyAI Realtime API");
+                return;
+            }
+            catch (Exception ex)
+            {
+                retryCount++;
+                _logger.LogTranscriberError(COMPONENT_NAME, $"Connection attempt {retryCount} failed: {ex.Message}");
+
+                if (retryCount == maxRetries)
+                {
+                    _logger.LogTranscriberError(COMPONENT_NAME, "Max retry attempts reached");
+                    OnError?.Invoke(this, ex);
+                    throw;
+                }
+
+                await Task.Delay(retryDelayMs, cancellationToken);
+            }
+        }
+    }
+
+    private async Task SetupTranscriberEventsAsync()
+    {
+        _transcriber.PartialTranscriptReceived.Subscribe(transcript =>
+        {
+            if (transcript.Text == "") return;
+            PartialTranscriptReceived?.Invoke(this, transcript.Text);
+        });
+
+        _transcriber.FinalTranscriptReceived.Subscribe(transcript =>
+        {
+            if (string.IsNullOrEmpty(transcript.Text)) return;
+            _logger.LogTranscriptionResult(transcript.Text);
+            OnTranscriptionResult?.Invoke(this, transcript.Text);
+        });
+
+        _transcriber.Closed.Subscribe(async (ClosedEventArgs args) =>
+        {
+            _logger.LogTranscriberError(COMPONENT_NAME, "Connection closed unexpectedly");
+            await HandleConnectionLostAsync();
+        });
+    }
+
+    private async Task HandleConnectionLostAsync()
+    {
+        if (_isReconnecting) return;
+
         try
         {
-            _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            await _reconnectSemaphore.WaitAsync();
+            _isReconnecting = true;
 
-            _transcriber.PartialTranscriptReceived.Subscribe(transcript =>
-            {
-                if (transcript.Text == "") return;
-                PartialTranscriptReceived?.Invoke(this, transcript.Text);
-            });
-
-            _transcriber.FinalTranscriptReceived.Subscribe(transcript =>
-            {
-                if (string.IsNullOrEmpty(transcript.Text))
-                    return;
-
-                _logger.LogTranscriptionResult(transcript.Text);
-                OnTranscriptionResult?.Invoke(this, transcript.Text);
-            });
-
+            _logger.LogTranscriptionProgress("reconnecting", "Attempting to reconnect to AssemblyAI");
             await _transcriber.ConnectAsync();
-            _isInitialized = true;
-            _logger.LogTranscriptionProgress("ready", "Connected to AssemblyAI Realtime API");
+            _logger.LogTranscriptionProgress("reconnected", "Successfully reconnected to AssemblyAI");
         }
         catch (Exception ex)
         {
-            _logger.LogTranscriberError(COMPONENT_NAME, $"Initialization failed: {ex.Message}");
+            _logger.LogTranscriberError(COMPONENT_NAME, $"Reconnection failed: {ex.Message}");
             OnError?.Invoke(this, ex);
-            throw;
+        }
+        finally
+        {
+            _isReconnecting = false;
+            _reconnectSemaphore.Release();
         }
     }
 
@@ -109,27 +158,28 @@ public sealed class AssemblyAIRealtimeTranscriber : ITranscriber, IAsyncDisposab
     {
         try
         {
-            if (!_isListening || _cts.Token.IsCancellationRequested) return;
+            if (_cts.Token.IsCancellationRequested) return;
 
-            // Convert bytes to float array for wake word detection
-            int bytesPerSample = _waveIn.WaveFormat.BitsPerSample / 8;
-            int sampleCount = e.BytesRecorded / bytesPerSample;
-            
-            for (int i = 0; i < sampleCount; i++)
+            if (_isListening)
             {
-                short sample = BitConverter.ToInt16(e.Buffer, i * bytesPerSample);
-                _tempBuffer[i] = sample / 32768f;
-            }
+                var buffer = new byte[e.BytesRecorded];
+                Array.Copy(e.Buffer, buffer, e.BytesRecorded);
 
-            // Always process audio for wake word detection
-            await _wakeWordDetector.ProcessAudioSegment(_tempBuffer);
+                // Calcola e pubblica il livello audio normalizzato
+                var normalizedLevel = CalculateNormalizedAudioLevel(buffer);
+                EventBus.Instance.Publish(new AudioInputLevelEvent
+                {
+                    Level = normalizedLevel
+                });
 
-            // Only send audio to AssemblyAI if activated
-            if (_isActivated)
-            {
-                _logger.LogTranscriptionProgress("transcribing", "Sending audio to AssemblyAI");
-                var buffer = new Memory<byte>(e.Buffer, 0, e.BytesRecorded);
-                await _transcriber.SendAudioAsync(buffer).ConfigureAwait(false);
+                try
+                {
+                    await _transcriber.SendAudioAsync(new Memory<byte>(buffer));
+                }
+                catch (Exception ex) when (ex.Message.Contains("Disconnected"))
+                {
+                    await HandleConnectionLostAsync();
+                }
             }
         }
         catch (Exception ex)
@@ -139,20 +189,27 @@ public sealed class AssemblyAIRealtimeTranscriber : ITranscriber, IAsyncDisposab
         }
     }
 
-    private float CalculateRMS(byte[] buffer, int bytesRecorded)
+    private float CalculateNormalizedAudioLevel(byte[] buffer)
     {
-        int bytesPerSample = _waveIn.WaveFormat.BitsPerSample / 8;
-        int sampleCount = bytesRecorded / bytesPerSample;
-        float sumSquares = 0.0f;
+        int bytesPerSample = BITS_PER_SAMPLE / 8;
+        int sampleCount = buffer.Length / bytesPerSample;
+        float maxSample = 0f;
 
+        // Trova il valore di picco nel buffer audio
         for (int i = 0; i < sampleCount; i++)
         {
             short sample = BitConverter.ToInt16(buffer, i * bytesPerSample);
-            float normalizedSample = sample / 32768f;
-            sumSquares += normalizedSample * normalizedSample;
+            float absoluteSample = Math.Abs(sample);
+            maxSample = Math.Max(maxSample, absoluteSample);
         }
 
-        return (float)Math.Sqrt(sumSquares / sampleCount);
+        // Normalizza il valore su una scala da 0 a NORMALIZED_SCALE
+        float normalizedLevel = (maxSample / MAX_16BIT_VALUE) * NORMALIZED_SCALE;
+
+        // Applica una leggera curva logaritmica per una migliore percezione
+        normalizedLevel = (float)(Math.Log10(normalizedLevel + 1) / Math.Log10(NORMALIZED_SCALE + 1) * NORMALIZED_SCALE);
+
+        return Math.Min(normalizedLevel, NORMALIZED_SCALE);
     }
 
     public void StartListening()
@@ -210,15 +267,6 @@ public sealed class AssemblyAIRealtimeTranscriber : ITranscriber, IAsyncDisposab
         }
     }
 
-    private void OnWakeWordDetected(object sender, bool detected)
-    {
-        if (!_isActivated && detected)
-        {
-            _isActivated = true;
-            _logger.LogTranscriptionProgress("activated", "Wake word detected, starting transcription");
-        }
-    }
-
     private void ThrowIfNotInitialized()
     {
         if (!_isInitialized)
@@ -242,6 +290,7 @@ public sealed class AssemblyAIRealtimeTranscriber : ITranscriber, IAsyncDisposab
         try
         {
             StopListening();
+            _reconnectSemaphore.Dispose();
 
             if (_transcriber != null)
             {
@@ -251,7 +300,6 @@ public sealed class AssemblyAIRealtimeTranscriber : ITranscriber, IAsyncDisposab
 
             _waveIn?.Dispose();
             _cts?.Dispose();
-            _wakeWordDetector.Dispose();
 
             _isDisposed = true;
             _logger.LogDeviceStatus("stopping", "Resources cleaned up successfully");

@@ -4,11 +4,11 @@ namespace Jarvis.Ai
 {
     public class IronManSuit
     {
-        private readonly IJarvis _jarvis;
+        private readonly JarvisAgent _jarvis;
         private readonly IVoiceInputModule _voiceInput;
         private readonly IDisplayModule _display;
 
-        public IronManSuit(IJarvis jarvis, IVoiceInputModule voiceInput, IDisplayModule display)
+        public IronManSuit(JarvisAgent jarvis, IVoiceInputModule voiceInput, IDisplayModule display)
         {
             _jarvis = jarvis;
             _voiceInput = voiceInput;

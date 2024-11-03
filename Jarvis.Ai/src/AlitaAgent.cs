@@ -1,6 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using System.Threading.Tasks.Dataflow;
 using Jarvis.Ai.Common.Settings;
+using Jarvis.Ai.Core.Events;
 using Jarvis.Ai.Interfaces;
 using Jarvis.Ai.LLM;
 using Jarvis.Ai.Persistence;
@@ -11,7 +12,7 @@ namespace Jarvis.Ai;
 /// <summary>
 /// Represents the main agent responsible for handling transcription, processing commands, and interacting with various modules.
 /// </summary>
-public class AlitaAgent : IJarvis, IDisposable
+public class AlitaAgent : IDisposable
 {
     #region Private Fields
     private readonly ILlmClient _llmClient;
@@ -19,7 +20,6 @@ public class AlitaAgent : IJarvis, IDisposable
     private readonly IModuleRegistry _moduleRegistry;
     private readonly ITranscriber _transcriptionService;
     private readonly IAudioOutputModule _audioOutputModule;
-    private readonly BufferBlock<string> _transcriptionBuffer;
     private readonly ConcurrentDictionary<string, byte> _processedTranscriptions = new();
     private readonly StarkProtocols _starkProtocols;
     private bool _isDisposed;
@@ -58,40 +58,27 @@ public class AlitaAgent : IJarvis, IDisposable
         _starkProtocols = starkProtocols;
 
         //_conversationHistory = new List<Message>();
-        _transcriptionBuffer = new BufferBlock<string>(new DataflowBlockOptions
-        {
-            BoundedCapacity = 100
-        });
 
         _transcriptionService.OnTranscriptionResult += HandleTranscriptionResult;
         _transcriptionService.PartialTranscriptReceived += HandlePartialTranscriptionResult;
+
         _conversationStore = conversationStore;
     }
 
     #endregion
 
-    #region IJarvis Implementation
+    #region Public Interface
     /// <summary>
-    /// Initializes the Alita Agent asynchronously.
+    /// Initializes Alita and starts the core systems.
     /// </summary>
-    /// <param name="initialCommands">Optional initial commands to execute after initialization.</param>
-    /// <param name="cancellationToken">Token to cancel the operation if needed.</param>
-    public async Task InitializeAsync(string[]? initialCommands, CancellationToken cancellationToken)
+    public async Task StartupAsync(CancellationToken cancellationToken)
     {
-
         try
         {
             _logger.LogAgentStatus("initializing", "Starting Alita Agent system");
 
             await _transcriptionService.InitializeAsync(cancellationToken);
-            await InitializeSystemPromptAsync(cancellationToken);
-            await StartListeningAsync(cancellationToken);
-
-            if (initialCommands is { Length: > 0 })
-            {
-                _logger.LogInformation($"Processing {initialCommands.Length} initial commands");
-                await ExecuteCommandsAsync(initialCommands, cancellationToken);
-            }
+            await InitializeSystemPromptAsync(cancellationToken); // Riabilitato
 
             _logger.LogAgentStatus("ready", "Alita Agent initialized and ready");
         }
@@ -103,155 +90,43 @@ public class AlitaAgent : IJarvis, IDisposable
     }
 
     /// <summary>
-    /// Initializes the system prompt and triggers an introduction from the AI.
-    /// Includes clearing conversation history, setting up system instructions,
-    /// and performing an initial greeting.
+    /// Stops the listening process and cancels current processing.
     /// </summary>
-    /// <param name="cancellationToken">Token to cancel the operation if needed</param>
-    private async Task InitializeSystemPromptAsync(CancellationToken cancellationToken)
+    public async Task StopListeningAsync(CancellationToken cancellationToken)
     {
         try
         {
-            _logger.LogMemory("store", "Loading system instructions");
+            _logger.LogAgentStatus("stopping", "Stopping listening process");
 
-            // Update System Instruction
-            await _conversationStore.SaveMessageAsync(new Message
-            {
-                Role = "system",
-                Content = _starkProtocols.SessionInstructions
-            });
+            // Stop transcription service
+            _transcriptionService.StopListening();
 
-            var messages = await _conversationStore.GetAllMessagesAsync();
+            // Cancel current processing if any
+            CancelCurrentProcessing();
 
-            // Request an introduction from the AI
-            await _conversationStore.SaveMessageAsync(new Message
-            {
-                Role = "user",
-                Content = "Greet the user in a friendly manner. If there are any incomplete tasks in the message list, " +
-                "briefly describe the task and ask if they'd like to proceed with its completion."
-            });
+            await Task.CompletedTask;
 
-            // Get updated messages including the greeting request
-            messages = await _conversationStore.GetAllMessagesAsync();
+            // Event bus
+            EventBus.Instance.Publish(new SystemStateEvent() { State = SystremState.Idle.ToString() });
 
-            // Get AI's introduction with the complete message history
-            var introductionResponse = await _llmClient.SendCommandToLlmAsync(
-                messages,
-                cancellationToken
-            );
-
-            // Speak the introduction
-            if (!string.IsNullOrEmpty(introductionResponse.Content))
-            {
-                _logger.LogInformation($"Speaking introduction: {introductionResponse.Content}");
-                await _audioOutputModule.SpeakAsync(introductionResponse.Content, cancellationToken);
-            }
+            _logger.LogAgentStatus("stopped", "Listening process stopped");
         }
         catch (Exception ex)
         {
-            _logger.LogError($"Error during system prompt initialization: {ex.Message}");
-            throw new InvalidOperationException("Failed to initialize system prompt", ex);
+            _logger.LogError($"Error during stop listening operation: {ex.Message}");
+            throw;
         }
     }
 
     /// <summary>
-    /// Processes the audio input asynchronously.
+    /// Shuts down Alita and cleans up resources.
     /// </summary>
-    /// <param name="audioData">The audio data to process.</param>
-    /// <param name="cancellationToken">Token to cancel the operation if needed.</param>
-    public Task ProcessAudioInputAsync(byte[] audioData, CancellationToken cancellationToken)
-    {
-        return Task.CompletedTask;
-    }
-
-    /// <summary>
-    /// Listens for a response asynchronously.
-    /// </summary>
-    /// <param name="cancellationToken">Token to cancel the operation if needed.</param>
-    /// <returns>The transcription of the response.</returns>
-    public async Task<string> ListenForResponseAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            if (_isProcessing) return string.Empty;
-
-            _logger.LogAgentStatus("listening", "Waiting for user input");
-
-            var transcription = await _transcriptionBuffer.ReceiveAsync(cancellationToken);
-
-            if (string.IsNullOrEmpty(transcription))
-                return transcription;
-
-            // Se la trascrizione è già stata processata, saltiamo
-            if (_processedTranscriptions.ContainsKey(transcription))
-            {
-                _logger.LogThinking("Skipping duplicate transcription", transcription);
-                return string.Empty;
-            }
-
-            try
-            {
-                await ProcessCommandAsync(transcription, cancellationToken);
-
-                _processedTranscriptions.TryAdd(transcription, 0);
-
-                if (_processedTranscriptions.Count > 1000)
-                {
-                    var oldestTranscriptions = _processedTranscriptions.Keys.Take(_processedTranscriptions.Count - 500);
-                    foreach (var old in oldestTranscriptions)
-                    {
-                        _processedTranscriptions.TryRemove(old, out _);
-                    }
-                }
-
-                return transcription;
-            }
-            finally
-            {
-                _isProcessing = false;
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            _logger.LogInformation("Listening operation cancelled");
-            return string.Empty;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError("Error in ListenForResponseAsync", ex);
-            return string.Empty;
-        }
-    }
-
-    /// <summary>
-    /// Executes the given commands asynchronously.
-    /// </summary>
-    /// <param name="commands">The commands to execute.</param>
-    /// <param name="cancellationToken">Token to cancel the operation if needed.</param>
-    public async Task ExecuteCommandsAsync(string[] commands, CancellationToken cancellationToken)
-    {
-        foreach (var command in commands)
-        {
-            if (_isProcessing)
-            {
-                _logger.LogInformation($"Skipping command {command} as another command is being processed");
-                continue;
-            }
-
-            _logger.LogInformation($"Executing command: {command}");
-            await ProcessCommandAsync(command, cancellationToken);
-        }
-    }
-
-    /// <summary>
-    /// Shuts down the Alita Agent asynchronously.
-    /// </summary>
-    public Task ShutdownAsync()
+    public async Task ShutdownAsync()
     {
         _logger.LogAgentStatus("shutdown", "Initiating shutdown sequence");
         _transcriptionService.StopListening();
         _listeningCts?.Cancel();
-        return Task.CompletedTask;
+        await Task.CompletedTask;
     }
     #endregion
 
@@ -260,28 +135,14 @@ public class AlitaAgent : IJarvis, IDisposable
     /// Starts listening for audio input asynchronously.
     /// </summary>
     /// <param name="cancellationToken">Token to cancel the operation if needed.</param>
-    private async Task StartListeningAsync(CancellationToken cancellationToken)
+    public async Task StartListeningAsync(CancellationToken cancellationToken)
     {
         _listeningCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _transcriptionService.StartListening();
+        EventBus.Instance.Publish(new SystemStateEvent() { State = SystremState.Listening.ToString() });
         _logger.LogInformation("Started listening");
     }
 
-    /// <summary>
-    /// Handles partial transcription results.
-    /// </summary>
-    /// <param name="sender">The sender of the event.</param>
-    /// <param name="e">The partial transcription result.</param>
-    private void HandlePartialTranscriptionResult(object? sender, string e)
-    {
-        CancelCurrentProcessing();
-    }
-
-    /// <summary>
-    /// Handles transcription results.
-    /// </summary>
-    /// <param name="sender">The sender of the event.</param>
-    /// <param name="transcription">The transcription result.</param>
     private void HandleTranscriptionResult(object sender, string transcription)
     {
         if (string.IsNullOrEmpty(transcription)) return;
@@ -295,12 +156,18 @@ public class AlitaAgent : IJarvis, IDisposable
         if (!_processedTranscriptions.ContainsKey(transcription))
         {
             _logger.LogConversation("transcription", transcription, "New input detected");
-            _transcriptionBuffer.Post(transcription);
+            // Invece di usare il buffer, processiamo direttamente
+            Task.Run(() => ProcessCommandAsync(transcription, _listeningCts.Token));
         }
         else
         {
             _logger.LogThinking("Skipping duplicate transcription", transcription);
         }
+    }
+
+    private void HandlePartialTranscriptionResult(object? sender, string e)
+    {
+        CancelCurrentProcessing();
     }
     #endregion
 
@@ -320,6 +187,8 @@ public class AlitaAgent : IJarvis, IDisposable
 
         try
         {
+            EventBus.Instance.Publish(new SystemStateEvent() { State = SystremState.Processing.ToString() });
+
             _isProcessing = true;
 
             _processingCts = CancellationTokenSource.CreateLinkedTokenSource(externalCancellationToken);
@@ -373,6 +242,7 @@ public class AlitaAgent : IJarvis, IDisposable
             _logger.LogToolExecution(functionCall.Function.Name, "start",
             $"Executing with args: {functionCall.Function.Arguments}");
 
+            EventBus.Instance.Publish(new SystemStateEvent() { State = SystremState.ExecutingFunction.ToString() });
 
             var funcArgs = JsonConvert.SerializeObject(functionCall.Function.Arguments);
             var args = JsonConvert.DeserializeObject<Dictionary<string, object>>(funcArgs);
@@ -451,7 +321,7 @@ public class AlitaAgent : IJarvis, IDisposable
     /// Disposes the resources used by the Alita Agent.
     /// </summary>
     /// <param name="disposing">Indicates whether the method is called from Dispose.</param>
-    protected virtual void Dispose(bool disposing)
+    private void Dispose(bool disposing)
     {
         if (_isDisposed) return;
         if (disposing)
@@ -459,13 +329,12 @@ public class AlitaAgent : IJarvis, IDisposable
             _logger.LogAgentStatus("disposing", "Cleaning up Alita Agent resources");
 
             _transcriptionService.OnTranscriptionResult -= HandleTranscriptionResult;
+            _transcriptionService.PartialTranscriptReceived -= HandlePartialTranscriptionResult;
             _transcriptionService.StopListening();
 
             CancelCurrentProcessing();
             _listeningCts?.Cancel();
             _listeningCts?.Dispose();
-
-            _transcriptionBuffer.Complete();
         }
 
         _isDisposed = true;
@@ -488,4 +357,30 @@ public class AlitaAgent : IJarvis, IDisposable
         Dispose(false);
     }
     #endregion
+
+    /// <summary>
+    /// Initializes the system prompt and loads session instructions.
+    /// </summary>
+    /// <param name="cancellationToken">Token to cancel the operation if needed</param>
+    private async Task InitializeSystemPromptAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            _logger.LogMemory("store", "Loading system instructions");
+
+            // Update System Instruction
+            await _conversationStore.SaveMessageAsync(new Message
+            {
+                Role = "system",
+                Content = _starkProtocols.SessionInstructions
+            });
+
+            _logger.LogMemory("ready", "System instructions loaded");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error during system prompt initialization: {ex.Message}");
+            throw new InvalidOperationException("Failed to initialize system prompt", ex);
+        }
+    }
 }
