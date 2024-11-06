@@ -1,11 +1,12 @@
 ﻿using Jarvis.Ai.Common.Settings;
 using Jarvis.Ai.Features.StarkArsenal.ModuleAttributes;
 using Jarvis.Ai.Interfaces;
+using Jarvis.Ai.LLM;
 using Jarvis.Ai.Models;
 
 namespace Jarvis.Ai.Features.StarkArsenal.Modules;
 
-[JarvisTacticalModule("Reads a file from the scratch_pad_dir and saves its content into memory based on the user's prompt.")]
+[JarvisTacticalModule("Reads a file from the ISOLATION_AREA and saves its content into memory based on the user's prompt.")]
 public class ReadFileIntoMemoryJarvisModule : BaseJarvisModule
 {
     [TacticalComponent("The user's prompt describing the file to read into memory.", "string", true)]
@@ -29,7 +30,7 @@ public class ReadFileIntoMemoryJarvisModule : BaseJarvisModule
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            string? scratchPadDir = _jarvisConfigManager.GetValue("SCRATCH_PAD_DIR");
+            string? scratchPadDir = _jarvisConfigManager.GetValue("ISOLATION_AREA");
             var availableFiles = Directory.GetFiles(scratchPadDir);
             string availableFilesStr = string.Join(", ", availableFiles);
 
@@ -74,7 +75,7 @@ public class ReadFileIntoMemoryJarvisModule : BaseJarvisModule
                 return new Dictionary<string, object>
                 {
                     { "status", "error" },
-                    { "message", $"File '{fileSelectionResponse.File}' not found in scratch_pad_dir" },
+                    { "message", $"File '{fileSelectionResponse.File}' not found in ISOLATION_AREA" },
                 };
             }
 

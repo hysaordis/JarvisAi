@@ -27,6 +27,7 @@ public class AlitaAgent : IDisposable
     private CancellationTokenSource? _processingCts;
     private volatile bool _isProcessing;
     private readonly IConversationStore _conversationStore;
+    private volatile bool _isMuted;
 
     #endregion
 
@@ -165,6 +166,32 @@ public class AlitaAgent : IDisposable
         }
     }
 
+    public async Task ChatAsync(string request)
+    {
+        if (string.IsNullOrEmpty(request)) return;
+
+        if (_listeningCts == null)
+        {
+            _listeningCts = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken.None);
+        }
+
+        if (_isProcessing)
+        {
+            _logger.LogThinking("New input received, canceling current processing");
+            CancelCurrentProcessing();
+        }
+
+        if (!_processedTranscriptions.ContainsKey(request))
+        {
+            _logger.LogConversation("transcription", request, "New input detected");
+            await ProcessCommandAsync(request, _listeningCts.Token);
+        }
+        else
+        {
+            _logger.LogThinking("Skipping duplicate transcription", request);
+        }
+    }
+
     private void HandlePartialTranscriptionResult(object? sender, string e)
     {
         CancelCurrentProcessing();
@@ -204,7 +231,18 @@ public class AlitaAgent : IDisposable
 
                 if (response.ToolCalls == null || !string.IsNullOrEmpty(response.Content))
                 {
-                    await _audioOutputModule.SpeakAsync(response.Content, processingToken);
+                    EventBus.Instance.Publish(new ChatEvent(response.Content));
+                    if (!_isMuted)
+                    {
+                        await _audioOutputModule.SpeakAsync(response.Content, processingToken);
+                    }
+                    else
+                    {
+                        EventBus.Instance.Publish(new SystemStateEvent
+                        {
+                            State = SystremState.Listening.ToString()
+                        });
+                    }
                     break;
                 }
 
@@ -310,9 +348,19 @@ public class AlitaAgent : IDisposable
             _ => "I encountered an unexpected error."
         };
 
-        await _audioOutputModule.SpeakAsync(
-            $"{errorMessage} Please try again in a moment.",
-            cancellationToken);
+        if (!_isMuted)
+        {
+            await _audioOutputModule.SpeakAsync(
+                $"{errorMessage} Please try again in a moment.",
+                cancellationToken);
+        }
+        else
+        {
+            EventBus.Instance.Publish(new SystemStateEvent
+            {
+                State = SystremState.Listening.ToString()
+            });
+        }
     }
     #endregion
 
@@ -383,4 +431,18 @@ public class AlitaAgent : IDisposable
             throw new InvalidOperationException("Failed to initialize system prompt", ex);
         }
     }
+
+    /// <summary>
+    /// Sets the mute state for voice output
+    /// </summary>
+    public void SetMute(bool mute)
+    {
+        _isMuted = mute;
+        _logger.LogInformation($"Voice output {(_isMuted ? "muted" : "unmuted")}");
+    }
+
+    /// <summary>
+    /// Gets the current mute state
+    /// </summary>
+    public bool IsMuted() => _isMuted;
 }

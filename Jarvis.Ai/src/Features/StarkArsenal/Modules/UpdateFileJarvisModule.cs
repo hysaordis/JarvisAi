@@ -1,6 +1,7 @@
 ﻿using Jarvis.Ai.Common.Settings;
 using Jarvis.Ai.Features.StarkArsenal.ModuleAttributes;
 using Jarvis.Ai.Interfaces;
+using Jarvis.Ai.LLM;
 using Jarvis.Ai.Models;
 
 namespace Jarvis.Ai.Features.StarkArsenal.Modules;
@@ -32,7 +33,7 @@ public class UpdateFileJarvisModule : BaseJarvisModule
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            string scratchPadDir = _jarvisConfigManager.GetValue("SCRATCH_PAD_DIR") ?? "./scratchpad";
+            string scratchPadDir = _jarvisConfigManager.GetValue("ISOLATION_AREA") ?? "./scratchpad";
             Directory.CreateDirectory(scratchPadDir);
 
             var availableFiles = Directory.GetFiles(scratchPadDir);

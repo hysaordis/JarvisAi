@@ -1,14 +1,15 @@
-﻿using Jarvis.Ai.Common.Settings;
+﻿using System.Text;
+using Jarvis.Ai.Common.Settings;
 using Jarvis.Ai.Features.StarkArsenal.ModuleAttributes;
 using Jarvis.Ai.Interfaces;
+using Jarvis.Ai.LLM;
 using Jarvis.Ai.Models;
 using Newtonsoft.Json;
-using System.Text;
 using TextCopy;
 
 namespace Jarvis.Ai.Features.StarkArsenal.Modules;
 
-[JarvisTacticalModule("Gets a URL from the clipboard, scrapes its content, and saves it to a file in the scratch_pad_dir.")]
+[JarvisTacticalModule("Gets a URL from the clipboard, scrapes its content, and saves it to a file in the ISOLATION_AREA.")]
 public class ScrapToFileFromClipboardJarvisModule : BaseJarvisModule
 {
     private readonly IJarvisConfigManager _jarvisConfigManager;
@@ -92,7 +93,7 @@ public class ScrapToFileFromClipboardJarvisModule : BaseJarvisModule
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            string scratchPadDir = _jarvisConfigManager.GetValue("SCRATCH_PAD_DIR") ?? "./scratchpad";
+            string scratchPadDir = _jarvisConfigManager.GetValue("ISOLATION_AREA") ?? "./scratchpad";
             Directory.CreateDirectory(scratchPadDir);
 
             string? url = await ClipboardService.GetTextAsync();

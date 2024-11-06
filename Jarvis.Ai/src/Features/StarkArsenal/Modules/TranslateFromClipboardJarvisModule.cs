@@ -1,11 +1,12 @@
 using Jarvis.Ai.Common.Settings;
 using Jarvis.Ai.Features.StarkArsenal.ModuleAttributes;
+using Jarvis.Ai.LLM;
 using Jarvis.Ai.Models;
 using TextCopy;
 
 namespace Jarvis.Ai.Features.StarkArsenal.Modules;
 
-[JarvisTacticalModule("Translates this text from clipboard to specified language.")]
+[JarvisTacticalModule("Translates this text to specified language.")]
 public class TranslateFromClipboardJarvisModule : BaseJarvisModule
 {
     [TacticalComponent("The user's prompt indicating target language and any style preferences.", "string")]

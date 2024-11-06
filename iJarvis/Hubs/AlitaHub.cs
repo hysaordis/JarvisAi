@@ -38,6 +38,27 @@ public class AlitaHub : Hub
                 timestamp = evt.Timestamp
             });
         });
+
+        EventBus.Instance.Subscribe<LogEvent>(async evt =>
+        {
+            await Clients.All.SendAsync("LogEvent", new
+            {
+                type = evt.Type,
+                message = evt.Message,
+                logLevel = evt.LogLevel.ToString(),
+                timestamp = evt.Timestamp
+            });
+        });
+
+        EventBus.Instance.Subscribe<ChatEvent>(async evt =>
+        {
+            await Clients.All.SendAsync("ChatEvent", new
+            {
+                type = evt.Type,
+                message = evt.Message,
+                timestamp = evt.Timestamp
+            });
+        });
     }
 
     public async Task StartupAsync()
@@ -82,6 +103,38 @@ public class AlitaHub : Hub
         }
     }
 
+    public async Task ChatAsync(string message)
+    {
+        try
+        {
+            // Send acknowledgment that message was received
+            await Clients.Caller.SendAsync("ChatEvent", new
+            {
+                type = "chat",
+                message = "Processing your message...",
+                timestamp = DateTime.UtcNow
+            });
+
+            // Process the chat message
+            await _alitaAgent.ChatAsync(message);
+
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Chat processing failed: {ex.Message}");
+            
+            // Send error message back to client
+            await Clients.Caller.SendAsync("ChatEvent", new
+            {
+                type = "chat",
+                message = "Sorry, I encountered an error processing your message.",
+                timestamp = DateTime.UtcNow
+            });
+            
+            throw;
+        }
+    }
+
     public async Task<string> GetServiceStatus()
     {
         return "Connected";
@@ -104,6 +157,30 @@ public class AlitaHub : Hub
     public async Task HeartbeatAsync()
     {
         await Clients.Caller.SendAsync("HeartbeatResponse", DateTime.UtcNow);
+    }
+
+    public async Task SetVoiceMuteAsync(bool mute)
+    {
+        try
+        {
+            _alitaAgent.SetMute(mute);
+            await Clients.All.SendAsync("VoiceMuteStateChanged", new
+            {
+                muted = mute,
+                timestamp = DateTime.UtcNow
+            });
+            _logger.LogInformation($"Voice output {(mute ? "muted" : "unmuted")}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Failed to {(mute ? "mute" : "unmute")} voice output: {ex.Message}");
+            throw;
+        }
+    }
+
+    public bool GetVoiceMuteState()
+    {
+        return _alitaAgent.IsMuted();
     }
 
     public override async Task OnConnectedAsync()

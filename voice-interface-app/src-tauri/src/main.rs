@@ -5,6 +5,11 @@
 use tauri::{CustomMenuItem, SystemTray, SystemTrayMenu, SystemTrayEvent, WindowEvent};
 use tauri::Manager;
 
+#[tauri::command]
+fn minimize_to_tray(window: tauri::Window) {
+    window.hide().unwrap();
+}
+
 fn main() {
     let quit = CustomMenuItem::new("quit".to_string(), "Quit");
     let hide = CustomMenuItem::new("hide".to_string(), "Hide");
@@ -20,10 +25,12 @@ fn main() {
 
     tauri::Builder::default()
         .system_tray(system_tray)
+        .invoke_handler(tauri::generate_handler![minimize_to_tray])
         .setup(|app| {
             let window = app.get_window("main").unwrap();
             window.set_decorations(false)?;
             window.set_always_on_top(true)?;
+            window.set_fullscreen(false)?; // Aggiungi questa riga
             window.show()?;
             Ok(())
         })

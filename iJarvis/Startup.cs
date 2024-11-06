@@ -5,25 +5,25 @@ using Jarvis.Ai.Interfaces;
 using Jarvis.Service.Config;
 using Jarvis.Service.Hubs;
 using Microsoft.AspNetCore.Http.Connections;
+using System.Reflection;
 
 namespace Jarvis.Service;
 
 public class Startup
 {
-    private readonly IConfiguration _configuration;
-
-    public Startup(IConfiguration configuration)
+    public Startup()
     {
-        _configuration = configuration;
-    }
 
+    }
     public void ConfigureServices(IServiceCollection services)
     {
         // Register configuration and logging services
         services.AddSingleton<IJarvisConfigManager, JarvisConfigManager>();
         services.AddSingleton<IJarvisLogger, Logger>();
 
-        var transcriberType = _configuration.GetValue<string>("TranscriberType") ?? "1";
+        var _configuration = services.BuildServiceProvider().GetRequiredService<IJarvisConfigManager>();
+
+        var transcriberType = _configuration.GetValue("TranscriberType") ?? "1";
 
         // Register core Jarvis systems
         services.AssembleJarvisSystems(_configuration);
@@ -53,11 +53,11 @@ public class Startup
         }
 
         // Register the main AI agent (only one should be active at a time)
-        //services.AddSingleton<IJarvis, JarvisAgent>();
+        //services.AddSingleton<JarvisAgent>();
         services.AddSingleton<AlitaAgent>();
 
         // Register IronManSuit which depends on IJarvis
-        services.AddSingleton<IronManSuit>();
+        //services.AddSingleton<IronManSuit>();
 
         // Register ASP.NET Core services
         services.AddEndpointsApiExplorer();

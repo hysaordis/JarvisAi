@@ -4,6 +4,7 @@ public enum SystremState
 {
     Idle,
     Listening,
+    ListeningLongSentence,
     Playing,
     Processing,
     ExecutingFunction

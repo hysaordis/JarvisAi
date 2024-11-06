@@ -2,12 +2,24 @@
 using Jarvis.Ai.Common.Settings;
 using Jarvis.Ai.Features.StarkArsenal.ModuleAttributes;
 using Jarvis.Ai.Interfaces;
+using Jarvis.Ai.LLM;
 using Jarvis.Ai.Models;
 using Newtonsoft.Json;
 
 namespace Jarvis.Ai.Features.StarkArsenal.Modules;
 
-[JarvisTacticalModule("Opens a browser tab with the best-fitting URL based on the user's prompt.")]
+[JarvisTacticalModule(@"Opens a web browser based on user's request. Use this module when:
+- User wants to read or search something on specific websites (e.g., Stack Overflow, GitHub, Google)
+- User asks to open a specific URL or website
+- User wants to browse the internet for technical information
+- User mentions 'open website', 'open browser', 'search online', 'read about', 'look up'
+- User wants to check professional social media (e.g., LinkedIn, Twitter)
+- User needs to access web-based development tools or platforms
+Examples:
+- 'I want to read about async programming on Stack Overflow'
+- 'Open GitHub'
+- 'Search for C# tutorials'
+- 'Can you open Google for me?'")]
 public class OpenBrowserJarvisModule : BaseJarvisModule
 {
     [TacticalComponent("The user's prompt to determine which URL to open.", "string", true)]
@@ -35,12 +47,12 @@ public class OpenBrowserJarvisModule : BaseJarvisModule
 
             string promptStructure = $@"
 <purpose>
-    Select a browser URL from the list of browser URLs based on the user's prompt.
+    Determine if the user's prompt is to open a specific URL or to perform a search.
 </purpose>
 
 <instructions>
-    <instruction>Infer the browser URL that the user wants to open from the user-prompt and the list of browser URLs.</instruction>
-    <instruction>If the user-prompt is not related to the browser URLs, return an empty string.</instruction>
+    <instruction>If the user's prompt matches one of the browser URLs, return the URL.</instruction>
+    <instruction>If the user's prompt is a search query, return an empty string.</instruction>
 </instructions>
 
 <browser-urls>
@@ -64,37 +76,12 @@ public class OpenBrowserJarvisModule : BaseJarvisModule
 
             if (!string.IsNullOrEmpty(response.Url))
             {
-                _jarvisLogger.LogInformation($"📖 open_browser() Opening URL: {response}");
-                try
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    Process.Start(new ProcessStartInfo
-                    {
-                        FileName = response.Url,
-                        UseShellExecute = true
-                    });
-                    return new Dictionary<string, object>
-                    {
-                        { "status", "Browser opened" },
-                        { "url", response },
-                    };
-                }
-                catch (Exception e)
-                {
-                    _jarvisLogger.LogError($"Failed to open browser: {e.Message}");
-                    return new Dictionary<string, object>
-                    {
-                        { "status", "Error" },
-                        { "message", $"Failed to open browser: {e.Message}" },
-                    };
-                }
+                return await OpenUrlAsync(response.Url, cancellationToken);
             }
-
-            return new Dictionary<string, object>
+            else
             {
-                { "status", "No URL found" },
-            };
+                return await HandleSearchQueryAsync(cancellationToken);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -110,6 +97,72 @@ public class OpenBrowserJarvisModule : BaseJarvisModule
             {
                 { "status", "error" },
                 { "message", $"Failed to process browser request: {e.Message}" }
+            };
+        }
+    }
+
+    private async Task<Dictionary<string, object>> OpenUrlAsync(string url, CancellationToken cancellationToken)
+    {
+        _jarvisLogger.LogInformation($"📖 open_browser() Opening URL: {url}");
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true
+            });
+            return new Dictionary<string, object>
+            {
+                { "status", "Browser opened" },
+                { "url", url },
+            };
+        }
+        catch (Exception e)
+        {
+            _jarvisLogger.LogError($"Failed to open browser: {e.Message}");
+            return new Dictionary<string, object>
+            {
+                { "status", "Error" },
+                { "message", $"Failed to open browser: {e.Message}" },
+            };
+        }
+    }
+
+    private async Task<Dictionary<string, object>> HandleSearchQueryAsync(CancellationToken cancellationToken)
+    {
+        string searchQuery = Uri.EscapeDataString(Prompt);
+        string searchUrl = $"https://www.google.com/search?q={searchQuery}";
+
+        if (Prompt.ToLower().Contains("youtube"))
+        {
+            searchUrl = $"https://www.youtube.com/results?search_query={searchQuery}";
+        }
+
+        _jarvisLogger.LogInformation($"📖 open_browser() Performing search with URL: {searchUrl}");
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = searchUrl,
+                UseShellExecute = true
+            });
+            return new Dictionary<string, object>
+            {
+                { "status", "Browser opened with search query" },
+                { "url", searchUrl },
+            };
+        }
+        catch (Exception e)
+        {
+            _jarvisLogger.LogError($"Failed to open browser with search query: {e.Message}");
+            return new Dictionary<string, object>
+            {
+                { "status", "Error" },
+                { "message", $"Failed to open browser with search query: {e.Message}" },
             };
         }
     }

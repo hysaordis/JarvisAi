@@ -12,6 +12,7 @@ export const ServiceStatus = {
 export const AudioState = {
   IDLE: 'idle',
   LISTENING: 'listening',
+  LISTENING_LONG_SENTENCE: 'LISTENING_LONG_SENTENCE',
   PLAYING: 'playing',
   PROCESSING: 'processing',
   EXECUTING_FUNCTION: 'executingfunction',
@@ -35,6 +36,7 @@ class SignalRService {
     this.heartbeatInterval = null;
     this.statusListeners = new Set();
     this.audioStateListeners = new Set();
+    this.chatListeners = new Set();
     this.isConnected = false;
     this.reconnectAttempts = 0;
     this.maxReconnectAttempts = 5;
@@ -57,6 +59,14 @@ class SignalRService {
     this.audioStateListeners.delete(callback);
   }
 
+  addChatListener(callback) {
+    this.chatListeners.add(callback);
+  }
+
+  removeChatListener(callback) {
+    this.chatListeners.delete(callback);
+  }
+
   notifyStatusListeners(status) {
     this.serviceStatus = status;
     this.statusListeners.forEach(listener => listener(status));
@@ -65,6 +75,10 @@ class SignalRService {
   notifyAudioStateListeners(state) {
     this.audioState = state;
     this.audioStateListeners.forEach(listener => listener(state));
+  }
+
+  notifyChatListeners(message) {
+    this.chatListeners.forEach(listener => listener(message));
   }
 
   async start() {
@@ -250,6 +264,37 @@ class SignalRService {
         this.handleConnectionError();
       }
     });
+
+    this.connection.on("ChatEvent", (eventData) => {
+      if (!eventData || !eventData.message) {
+        console.warn('Received invalid chat event data');
+        return;
+      }
+      this.notifyChatListeners({
+        id: Date.now(),
+        text: eventData.message,
+        sender: 'ai',
+        timestamp: new Date(eventData.timestamp).toLocaleTimeString()
+      });
+    });
+
+    this.connection.on("VoiceMuteStateChanged", (eventData) => {
+      if (!eventData) {
+        console.warn('Received invalid mute state event data');
+        return;
+      }
+      // You can add listeners for mute state changes here if needed
+      console.log('Voice mute state changed:', eventData.muted);
+    });
+  }
+
+  async sendChatMessage(message) {
+    try {
+      await this.connection.invoke('ChatAsync', message);
+    } catch (err) {
+      console.error('Failed to send chat message:', err);
+      throw err;
+    }
   }
 
   handleConnectionError() {
@@ -314,6 +359,24 @@ class SignalRService {
     });
   }
 
+  async setVoiceMute(mute) {
+    try {
+      await this.connection.invoke('SetVoiceMuteAsync', mute);
+    } catch (err) {
+      console.error('Failed to set voice mute state:', err);
+      throw err;
+    }
+  }
+
+  async getVoiceMuteState() {
+    try {
+      return await this.connection.invoke('GetVoiceMuteState');
+    } catch (err) {
+      console.error('Failed to get voice mute state:', err);
+      throw err;
+    }
+  }
+
   mapToServiceStatus(status) {
     if (!status) {
       console.warn('Received undefined or null status');
@@ -339,6 +402,7 @@ class SignalRService {
     const stateMap = {
       'idle': AudioState.IDLE,
       'listening': AudioState.LISTENING,
+      'listeninglongsentence': AudioState.LISTENING_LONG_SENTENCE,
       'playing': AudioState.PLAYING,
       'processing': AudioState.PROCESSING,
       'executingfunction': AudioState.EXECUTING_FUNCTION,
@@ -364,6 +428,7 @@ class SignalRService {
       this.isConnected = false;
       this.statusListeners.clear();
       this.audioStateListeners.clear();
+      this.chatListeners.clear();
     } catch (err) {
       console.error('Error during SignalR service disposal:', err);
     }

@@ -38,20 +38,27 @@ const VoiceInterface = () => {
     [AudioState.IDLE]: {
       primary: '#8E8E93',
       glow: 'rgba(142, 142, 147, 0.3)'
+    },
+    [AudioState.LISTENING_LONG_SENTENCE]: {
+      primary: '#FFD700',
+      glow: 'rgba(255, 215, 0, 0.3)'
     }
   }), []);
 
-  // Aggiungi mapping per i testi degli stati
   const stateLabels = useMemo(() => ({
     [AudioState.ERROR]: 'Error',
     [AudioState.LISTENING]: 'Listening',
     [AudioState.PLAYING]: 'Speaking',
     [AudioState.PROCESSING]: 'Processing',
     [AudioState.EXECUTING_FUNCTION]: 'Executing',
-    [AudioState.IDLE]: 'Idle'
+    [AudioState.IDLE]: 'Idle',
+    [AudioState.LISTENING_LONG_SENTENCE]: 'Long Sentence Mode'
   }), []);
 
   const smoothAudioLevel = useCallback((newLevel) => {
+    const MAX_HISTORY = 10;
+    const SMOOTHING_FACTOR = 0.3;
+
     audioLevelHistory.current.push(newLevel);
     if (audioLevelHistory.current.length > MAX_HISTORY) {
       audioLevelHistory.current.shift();
@@ -72,15 +79,13 @@ const VoiceInterface = () => {
         setIsListening(false);
         break;
       case ServiceStatus.CONNECTED:
-        if (!isListening) {
-          setServiceState(AudioState.IDLE);
-        }
+        if (!isListening) setServiceState(AudioState.IDLE);
         break;
       case ServiceStatus.DISCONNECTED:
         setServiceState(AudioState.IDLE);
         setIsListening(false);
         break;
-      case ServiceStatus.RECONNECTING:
+      default:
         break;
     }
   }, [isListening]);
@@ -111,36 +116,57 @@ const VoiceInterface = () => {
     };
   }, [handleServiceStatus, smoothAudioLevel]);
 
-  // Memoize drawing functions
-  const drawFunctions = useMemo(() => ({
+  const drawFunctions = {
     drawGlowCircle: (ctx, centerX, centerY, size, alpha, color) => {
+      // Enhanced outer glow
+      ctx.shadowBlur = 15;
+      ctx.shadowColor = color;
       ctx.beginPath();
       ctx.arc(centerX, centerY, size, 0, Math.PI * 2);
       ctx.fillStyle = color;
-      ctx.globalAlpha = alpha;
+      ctx.globalAlpha = alpha * 0.7; // Reduced opacity for softer glow
       ctx.fill();
       ctx.globalAlpha = 1;
     },
 
     drawMainCircle: (ctx, centerX, centerY, size, alpha, color) => {
+      // Enhanced gradient with more color stops
       const gradient = ctx.createRadialGradient(
         centerX, centerY, 0,
         centerX, centerY, size
       );
 
+      // Inner glow effect
       gradient.addColorStop(0, `${color}${Math.floor(alpha * 255).toString(16).padStart(2, '0')}`);
-      gradient.addColorStop(0.6, `${color}${Math.floor(alpha * 0.7 * 255).toString(16).padStart(2, '0')}`);
+      gradient.addColorStop(0.4, `${color}${Math.floor(alpha * 0.9 * 255).toString(16).padStart(2, '0')}`);
+      gradient.addColorStop(0.7, `${color}${Math.floor(alpha * 0.5 * 255).toString(16).padStart(2, '0')}`);
+      gradient.addColorStop(0.9, `${color}${Math.floor(alpha * 0.3 * 255).toString(16).padStart(2, '0')}`);
       gradient.addColorStop(1, 'transparent');
 
       ctx.beginPath();
       ctx.arc(centerX, centerY, size, 0, Math.PI * 2);
       ctx.fillStyle = gradient;
       ctx.fill();
+
+      // Add inner highlight
+      const innerGradient = ctx.createRadialGradient(
+        centerX - size * 0.3, centerY - size * 0.3, size * 0.1,
+        centerX, centerY, size
+      );
+      innerGradient.addColorStop(0, `rgba(255, 255, 255, ${alpha * 0.4})`);
+      innerGradient.addColorStop(1, 'transparent');
+      
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, size, 0, Math.PI * 2);
+      ctx.fillStyle = innerGradient;
+      ctx.fill();
     }
-  }), []);
+  };
 
   useEffect(() => {
     const canvas = canvasRef.current;
+    if (!canvas) return; // Aggiungi questo controllo
+
     const ctx = canvas.getContext('2d', { alpha: true });
     let startTime = Date.now();
     const baseSize = 35; // Base size for the circle
@@ -178,14 +204,15 @@ const VoiceInterface = () => {
       const centerY = height / (2 * (window.devicePixelRatio || 1));
       let currentSize = baseSize + idlePulse;
 
-      ctx.shadowBlur = 11.2;
+      ctx.shadowBlur = 15; // Increased shadow blur
       ctx.shadowColor = glow;
 
-      if (serviceState === AudioState.LISTENING) {
-        currentSize += Math.sin(time * 4) * 5.6;
-        drawFunctions.drawGlowCircle(ctx, centerX, centerY, currentSize * 1.4, 0.3, glow);
-        drawFunctions.drawMainCircle(ctx, centerX, centerY, currentSize * 1.1, 0.4, primary);
-        drawFunctions.drawMainCircle(ctx, centerX, centerY, currentSize, 0.6, primary);
+      if (serviceState === AudioState.LISTENING || 
+          serviceState === AudioState.LISTENING_LONG_SENTENCE) {
+        currentSize += Math.sin(time * 3.5) * 6; // Smoother animation
+        drawFunctions.drawGlowCircle(ctx, centerX, centerY, currentSize * 1.5, 0.35, glow);
+        drawFunctions.drawMainCircle(ctx, centerX, centerY, currentSize * 1.2, 0.45, primary);
+        drawFunctions.drawMainCircle(ctx, centerX, centerY, currentSize, 0.7, primary);
       } else if (serviceState === AudioState.PLAYING) {
         currentSize += Math.sin(time * 4) * 5.6;
         drawFunctions.drawGlowCircle(ctx, centerX, centerY, currentSize * 1.4, 0.3, glow);
@@ -217,19 +244,23 @@ const VoiceInterface = () => {
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [audioLevel, serviceState, stateColors, drawFunctions]);
+  }, [audioLevel, serviceState, stateColors]);
 
   const toggleListening = async () => {
     try {
-      if (isListening) {
-        await signalRService.stopListening();
-      } else {
+      if (serviceState === AudioState.IDLE) {
+        // Start listening if currently idle
         await signalRService.startListening();
+        setIsListening(true);
+      } else {
+        // Stop listening if in any other state
+        await signalRService.stopListening();
+        setIsListening(false);
       }
-      setIsListening(!isListening);
     } catch (err) {
       console.error('Toggle Listening Error:', err);
       setServiceState(AudioState.ERROR);
+      setIsListening(false);
     }
   };
 
@@ -246,32 +277,51 @@ const VoiceInterface = () => {
     <div
       ref={containerRef}
       onPointerDown={startDrag}
-      className="fixed inset-0 flex flex-col items-center justify-center draggable-region"
+      className="flex flex-col items-center justify-center draggable-region"
       style={{ 
         background: 'transparent',
-        height: '200px',
-        width: '200px',
+        height: '200px', // Increased height
+        width: '200px',  // Increased width
         cursor: 'move',
         touchAction: 'none',
         position: 'relative'
       }}
     >
       <div className="window-drag-handle" onPointerDown={startDrag} />
+      
+      {/* Long Sentence Mode Message */}
+      {serviceState === AudioState.LISTENING_LONG_SENTENCE && (
+        <div 
+          className="absolute top-0 left-1/2 transform -translate-x-1/2 px-3 py-1 rounded-full 
+                    backdrop-blur-md transition-all duration-300 text-xs font-medium"
+          style={{
+            backgroundColor: `${stateColors[AudioState.LISTENING_LONG_SENTENCE].primary}22`,
+            color: stateColors[AudioState.LISTENING_LONG_SENTENCE].primary,
+            border: `1px solid ${stateColors[AudioState.LISTENING_LONG_SENTENCE].primary}44`,
+            textShadow: `0 0 10px ${stateColors[AudioState.LISTENING_LONG_SENTENCE].glow}`,
+            whiteSpace: 'nowrap'
+          }}
+        >
+          Say "stop" to end
+        </div>
+      )}
+
+      {/* Main Canvas */}
       <canvas
         ref={canvasRef}
         className="non-draggable-region cursor-pointer transition-transform duration-200 hover:scale-105 active:scale-95"
         onClick={toggleListening}
         style={{ 
-          width: '200px',
-          height: '200px',
+          width: '250px',  // Increased width
+          height: '250px', // Increased height
           background: 'transparent',
           pointerEvents: 'auto'
         }}
       />
       
-      {/* Nuova label per lo stato */}
+      {/* Status Label */}
       <div 
-        className="absolute bottom-2 left-1/2 transform -translate-x-1/2 px-3 py-1 rounded-full 
+        className="absolute bottom-0 left-1/2 transform -translate-x-1/2 px-3 py-1 rounded-full 
                    backdrop-blur-md transition-all duration-300 text-sm font-medium"
         style={{
           backgroundColor: `${stateColors[serviceState].primary}22`,
@@ -279,7 +329,8 @@ const VoiceInterface = () => {
           border: `1px solid ${stateColors[serviceState].primary}44`,
           textShadow: `0 0 10px ${stateColors[serviceState].glow}`,
           opacity: serviceState === AudioState.IDLE ? 0.7 : 1,
-          transform: `translate(-50%, ${serviceState === AudioState.IDLE ? '10px' : '0'})`,
+          transform: `translate(-50%, ${serviceState === AudioState.IDLE ? '0' : '0'})`,
+          whiteSpace: 'nowrap'
         }}
       >
         {stateLabels[serviceState]}

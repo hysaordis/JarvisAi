@@ -1,14 +1,15 @@
-using Jarvis.Ai.Features.StarkArsenal.ModuleAttributes;
-using Jarvis.Ai.Interfaces;
-using Jarvis.Ai.Common.Settings;
-using Jarvis.Ai.Models;
+using System.Text;
+using System.Text.RegularExpressions;
 using Google.Apis.Auth.OAuth2;
 using Google.Apis.Gmail.v1;
 using Google.Apis.Gmail.v1.Data;
 using Google.Apis.Services;
 using Google.Apis.Util.Store;
-using System.Text;
-using System.Text.RegularExpressions;
+using Jarvis.Ai.Common.Settings;
+using Jarvis.Ai.Features.StarkArsenal.ModuleAttributes;
+using Jarvis.Ai.Interfaces;
+using Jarvis.Ai.LLM;
+using Jarvis.Ai.Models;
 
 namespace Jarvis.Ai.Features.StarkArsenal.Modules;
 

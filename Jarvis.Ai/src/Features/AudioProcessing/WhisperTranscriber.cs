@@ -1,15 +1,15 @@
 ﻿using System.Text;
 using Jarvis.Ai.Common.Utils;
+using Jarvis.Ai.Core.Events;
 using Jarvis.Ai.Interfaces;
 using NAudio.Wave;
 using Whisper.net;
 
 namespace Jarvis.Ai.Features.AudioProcessing;
 
-public sealed class WhisperTranscriber : ITranscriber
+public sealed class WhisperTranscriber : ITranscriber, IDisposable
 {
     #region Constants
-    private const int DEVICE_NUMBER = 1;
     private const int BUFFER_SECONDS = 5; // Increased for better context
     private const int SAMPLE_RATE = 16000;
     private const int BITS_PER_SAMPLE = 16;
@@ -28,6 +28,8 @@ public sealed class WhisperTranscriber : ITranscriber
     private readonly StringBuilder _transcriptionBuilder;
     private readonly RingBuffer<float> _audioBuffer;
     private readonly SemaphoreSlim _processingLock;
+    private readonly int _deviceNumber;
+    private readonly string _language;
 
     private WhisperFactory _whisperFactory;
     private WhisperProcessor _whisperProcessor;
@@ -37,6 +39,14 @@ public sealed class WhisperTranscriber : ITranscriber
     private bool _isDisposed;
     private DateTime _lastSilenceTime;
     private bool _isSpeaking;
+    private bool _isListening = false;
+
+    private bool isLongTextMode = false;
+    private StringBuilder longTextBuilder = new StringBuilder();
+
+    // Add lists of commands to start and stop long text mode
+    private readonly List<string> longTextStartCommands = new List<string> { "whisper", "hey", "ehi", "jarvis", "alita" };
+    private readonly List<string> longTextEndCommands = new List<string> { "procedi", "stop", "procedere", "grazie", "thank you" };
 
     public event EventHandler<string> OnTranscriptionResult;
     public event EventHandler<Exception> OnError;
@@ -48,7 +58,7 @@ public sealed class WhisperTranscriber : ITranscriber
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _configManager = configManager ?? throw new ArgumentNullException(nameof(configManager));
-        
+
         // Get model path from config or use default AppData path
         string configuredPath = _configManager.GetValue("WHISPER_MODEL_PATH");
         if (!string.IsNullOrEmpty(configuredPath))
@@ -62,6 +72,13 @@ public sealed class WhisperTranscriber : ITranscriber
             _whisperModelPath = Path.Combine(modelDir, MODEL_FILENAME);
         }
 
+        // Get device number from config
+        var deviceNumberStr = _configManager.GetValue("AUDIO_DEVICE_NUMBER") ?? "-1";
+        _deviceNumber = int.Parse(deviceNumberStr);
+
+        // Get language from config or default to "en"
+        _language = _configManager.GetValue("WHISPER_LANGUAGE") ?? "en";
+
         _transcriptionBuilder = new StringBuilder();
         _audioBuffer = new RingBuffer<float>(MAX_QUEUE_SIZE);
         _processingLock = new SemaphoreSlim(1, 1);
@@ -72,34 +89,45 @@ public sealed class WhisperTranscriber : ITranscriber
     {
         if (string.IsNullOrEmpty(_whisperModelPath))
         {
-            throw new InvalidOperationException("Whisper model path is not configured");
+            var message = "Whisper model path is not configured.";
+            _logger.LogTranscriberError("configuration", message);
+            throw new InvalidOperationException(message);
         }
 
         if (!File.Exists(_whisperModelPath))
         {
-            _logger.LogDeviceStatus("downloading", "Downloading Whisper model for transcription...");
-            
-            string modelDirectory = Path.GetDirectoryName(_whisperModelPath);
-            if (!string.IsNullOrEmpty(modelDirectory))
+            try
             {
-                Directory.CreateDirectory(modelDirectory);
-            }
+                _logger.LogDeviceStatus("downloading", "Downloading Whisper model for transcription...");
 
-            using (var httpClient = new HttpClient())
-            using (var response = await httpClient.GetAsync(MODEL_URL))
-            {
-                if (!response.IsSuccessStatusCode)
+                string modelDirectory = Path.GetDirectoryName(_whisperModelPath);
+                if (!string.IsNullOrEmpty(modelDirectory))
                 {
-                    throw new HttpRequestException($"Failed to download model: {response.StatusCode}");
+                    Directory.CreateDirectory(modelDirectory);
                 }
 
-                using (var fs = new FileStream(_whisperModelPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                using (var httpClient = new HttpClient())
+                using (var response = await httpClient.GetAsync(MODEL_URL))
                 {
-                    await response.Content.CopyToAsync(fs);
-                }
-            }
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        throw new HttpRequestException($"Failed to download model: {response.StatusCode}");
+                    }
 
-            _logger.LogDeviceStatus("downloaded", "Whisper model downloaded successfully.");
+                    using (var fs = new FileStream(_whisperModelPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                    {
+                        await response.Content.CopyToAsync(fs);
+                    }
+                }
+
+                _logger.LogDeviceStatus("downloaded", "Whisper model downloaded successfully.");
+            }
+            catch (Exception ex)
+            {
+                var message = $"Error downloading Whisper model: {ex.Message}";
+                _logger.LogTranscriberError("download", message);
+                throw new Exception(message, ex);
+            }
         }
     }
 
@@ -125,7 +153,7 @@ public sealed class WhisperTranscriber : ITranscriber
                 _whisperFactory = WhisperFactory.FromPath(_whisperModelPath);
 
                 _whisperProcessor = _whisperFactory.CreateBuilder()
-                    .WithLanguage("en")
+                    .WithLanguage(_language)
                     .WithProbabilities()
                     .WithNoContext()
                     .WithTemperature(0.0f)
@@ -157,7 +185,7 @@ public sealed class WhisperTranscriber : ITranscriber
         _waveIn = new WaveInEvent
         {
             WaveFormat = new WaveFormat(SAMPLE_RATE, BITS_PER_SAMPLE, CHANNELS),
-            DeviceNumber = DEVICE_NUMBER,
+            DeviceNumber = _deviceNumber,
             BufferMilliseconds = BUFFER_MILLISECONDS
         };
 
@@ -170,10 +198,17 @@ public sealed class WhisperTranscriber : ITranscriber
         ThrowIfNotInitialized();
         ThrowIfDisposed();
 
+        if (_isListening)
+        {
+            _logger.LogTranscriberError("start", "Transcriber is already listening");
+            return;
+        }
+
         try
         {
             _cts = new CancellationTokenSource();
             _waveIn.StartRecording();
+            _isListening = true;
 
             Task.Run(async () =>
             {
@@ -181,7 +216,11 @@ public sealed class WhisperTranscriber : ITranscriber
                 {
                     await ProcessAudioAsync(_cts.Token);
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException)
+                catch (OperationCanceledException)
+                {
+                    // Gracefully handle cancellation
+                }
+                catch (Exception ex)
                 {
                     _logger.LogTranscriberError("processing", ex.Message);
                     OnError?.Invoke(this, ex);
@@ -192,8 +231,9 @@ public sealed class WhisperTranscriber : ITranscriber
         }
         catch (Exception ex)
         {
-            _logger.LogTranscriberError("device", ex.Message);
-            OnError?.Invoke(this, ex);
+            var message = $"Failed to start listening: {ex.Message}";
+            _logger.LogTranscriberError("device", message);
+            OnError?.Invoke(this, new Exception(message, ex));
             throw;
         }
     }
@@ -241,23 +281,21 @@ public sealed class WhisperTranscriber : ITranscriber
     {
         while (!cancellationToken.IsCancellationRequested)
         {
-            try
+            if (_audioBuffer.Count >= SAMPLE_RATE * BUFFER_SECONDS)
             {
-                await _processingLock.WaitAsync(cancellationToken);
-
-                var samplesNeeded = SAMPLE_RATE * BUFFER_SECONDS;
-                if (_audioBuffer.Count >= samplesNeeded)
+                try
                 {
-                    var audioData = new float[samplesNeeded];
-                    _audioBuffer.Read(audioData, 0, samplesNeeded);
+                    await _processingLock.WaitAsync(cancellationToken);
+
+                    var audioData = new float[SAMPLE_RATE * BUFFER_SECONDS];
+                    _audioBuffer.Read(audioData, 0, audioData.Length);
 
                     await ProcessSegmentAsync(audioData, cancellationToken);
-                    _transcriptionBuilder.Clear(); // Clear after processing
                 }
-            }
-            finally
-            {
-                _processingLock.Release();
+                finally
+                {
+                    _processingLock.Release();
+                }
             }
 
             await Task.Delay(BUFFER_MILLISECONDS, cancellationToken);
@@ -276,20 +314,57 @@ public sealed class WhisperTranscriber : ITranscriber
                 if (string.IsNullOrEmpty(text))
                     continue;
 
-                // Filter out low probability segments
-                if (segment.Probability < 0.6f)
+                // Convert text to lowercase for case-insensitive matching
+                var lowerText = text.ToLowerInvariant();
+
+                // Check for start commands
+                if (longTextStartCommands.Any(cmd => lowerText.Contains(cmd)))
                 {
-                    _logger.LogTranscriptionResult(text, segment.Probability);
+                    isLongTextMode = true;
+                    _logger.LogTranscriptionProgress("mode", "Entered long text mode");
+                    InvokeLongTextModeEvent(true); // Invoke event for entering long text mode
                     continue;
                 }
 
-                _transcriptionBuilder.AppendLine(text);
-
-                var completeTranscription = _transcriptionBuilder.ToString().Trim();
-                if (!string.IsNullOrWhiteSpace(completeTranscription))
+                // Check for end commands
+                if (isLongTextMode && longTextEndCommands.Any(cmd => lowerText.Contains(cmd)))
                 {
-                    _logger.LogTranscriptionResult(completeTranscription, segment.Probability);
-                    OnTranscriptionResult?.Invoke(this, completeTranscription);
+                    isLongTextMode = false;
+                    var completeTranscription = longTextBuilder.ToString().Trim();
+                    if (!string.IsNullOrWhiteSpace(completeTranscription))
+                    {
+                        _logger.LogTranscriptionResult(completeTranscription, segment.Probability);
+                        OnTranscriptionResult?.Invoke(this, completeTranscription);
+                    }
+                    longTextBuilder.Clear();
+                    _logger.LogTranscriptionProgress("mode", "Exited long text mode");
+                    InvokeLongTextModeEvent(false); // Invoke event for exiting long text mode
+                    continue;
+                }
+
+                // Handle transcription based on mode
+                if (isLongTextMode)
+                {
+                    longTextBuilder.AppendLine(text);
+                }
+                else
+                {
+                    // Existing behavior
+                    if (segment.Probability < 0.6f)
+                    {
+                        _logger.LogTranscriptionResult(text, segment.Probability);
+                        continue;
+                    }
+
+                    _transcriptionBuilder.AppendLine(text);
+
+                    var completeTranscription = _transcriptionBuilder.ToString().Trim();
+                    if (!string.IsNullOrWhiteSpace(completeTranscription))
+                    {
+                        _logger.LogTranscriptionResult(completeTranscription, segment.Probability);
+                        OnTranscriptionResult?.Invoke(this, completeTranscription);
+                    }
+                    _transcriptionBuilder.Clear();
                 }
             }
 
@@ -302,6 +377,18 @@ public sealed class WhisperTranscriber : ITranscriber
         }
     }
 
+    private void InvokeLongTextModeEvent(bool isEntering)
+    {
+        if (isEntering)
+        {
+            EventBus.Instance.Publish(new SystemStateEvent() { State = SystremState.ListeningLongSentence.ToString() });
+        }
+        else
+        {
+            EventBus.Instance.Publish(new SystemStateEvent() { State = SystremState.Listening.ToString() });
+        }
+    }
+
     public void StopListening()
     {
         if (_isDisposed) return;
@@ -310,6 +397,8 @@ public sealed class WhisperTranscriber : ITranscriber
         {
             _cts?.Cancel();
             _waveIn?.StopRecording();
+            _isListening = false;
+
             _logger.LogDeviceStatus("stopping", "Recording stopped");
         }
         catch (Exception ex)
@@ -347,24 +436,35 @@ public sealed class WhisperTranscriber : ITranscriber
 
     public void Dispose()
     {
-        if (_isDisposed) return;
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
 
-        try
+    private void Dispose(bool disposing)
+    {
+        if (_isDisposed)
+            return;
+
+        if (disposing)
         {
-            StopListening();
+            // Dispose managed resources
+            _cts?.Cancel();
             _waveIn?.Dispose();
             _whisperProcessor?.Dispose();
             _whisperFactory?.Dispose();
             _cts?.Dispose();
             _processingLock?.Dispose();
+        }
 
-            _isDisposed = true;
-            _logger.LogDeviceStatus("stopping", "Transcriber disposed successfully");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogTranscriberError("disposal", ex.Message);
-        }
+        // Dispose unmanaged resources if any
+
+        _isDisposed = true;
+        _logger.LogDeviceStatus("stopping", "Transcriber disposed successfully");
+    }
+
+    ~WhisperTranscriber()
+    {
+        Dispose(false);
     }
 }
 

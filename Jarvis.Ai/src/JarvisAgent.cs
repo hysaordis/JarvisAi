@@ -21,10 +21,10 @@ namespace Jarvis.Ai
         public JarvisAgent(IJarvisConfigManager configManager, StarkProtocols starkProtocols, IModuleRegistry moduleRegistry,
             IStarkArsenal starkArsenal, IJarvisLogger jarvisLogger, IAudioOutputModule audioOutputModule)
         {
-            var accessKey = configManager.GetValue("OPENAI_API_KEY");
+            var accessKey = configManager.GetValue("OPENAI_KEY");
             if (string.IsNullOrEmpty(accessKey))
             {
-                throw new Exception("OPENAI_API_KEY environment variable not set.");
+                throw new Exception("OPENAI_KEY environment variable not set.");
             }
             _starkProtocols = starkProtocols;
             _moduleRegistry = moduleRegistry;

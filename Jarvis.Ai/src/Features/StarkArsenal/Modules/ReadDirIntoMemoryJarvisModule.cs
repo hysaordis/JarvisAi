@@ -3,7 +3,7 @@ using Jarvis.Ai.Interfaces;
 
 namespace Jarvis.Ai.Features.StarkArsenal.Modules;
 
-[JarvisTacticalModule("Reads all files from the scratch_pad_dir and saves their content into memory.")]
+[JarvisTacticalModule("Reads all files from the ISOLATION_AREA and saves their content into memory.")]
 public class ReadDirIntoMemoryJarvisModule : BaseJarvisModule
 {
     private readonly IJarvisConfigManager _jarvisConfigManager;
@@ -17,7 +17,7 @@ public class ReadDirIntoMemoryJarvisModule : BaseJarvisModule
 
     protected override async Task<Dictionary<string, object>> ExecuteComponentAsync(CancellationToken cancellationToken)
     {
-        string scratchPadDir = _jarvisConfigManager.GetValue("SCRATCH_PAD_DIR") ?? "./scratchpad";
+        string scratchPadDir = _jarvisConfigManager.GetValue("ISOLATION_AREA") ?? "./scratchpad";
 
         try
         {

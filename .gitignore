@@ -341,3 +341,7 @@ config/appsettings.local.json
 /iJarvis/conversations.json
 /iJarvis/config/client_secret_307889607633-s2kv6e043v2h6klasuj12ho7qent9ejq.apps.googleusercontent.com.json
 /iJarvis/config/token/Google.Apis.Auth.OAuth2.Responses.TokenResponse-user
+iJarvis/client_secret.json
+iJarvis/token/Google.Apis.Auth.OAuth2.Responses.TokenResponse-user
+Jarvis.Ai/src/Features/StarkArsenal/Modules/TypeInputJarvisModule.cs
+Jarvis.Ai/src/Features/StarkArsenal/Modules/MouseWorkSimulatorModule.cs

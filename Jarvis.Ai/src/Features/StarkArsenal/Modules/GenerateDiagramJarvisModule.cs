@@ -1,6 +1,7 @@
 ﻿using System.Text;
 using Jarvis.Ai.Features.StarkArsenal.ModuleAttributes;
 using Jarvis.Ai.Interfaces;
+using Jarvis.Ai.LLM;
 using SixLabors.ImageSharp;
 
 namespace Jarvis.Ai.Features.StarkArsenal.Modules
@@ -30,10 +31,10 @@ namespace Jarvis.Ai.Features.StarkArsenal.Modules
             IJarvisConfigManager configManager,
             ILlmClient llmClient)
         {
-            var scratchPadDir = configManager.GetValue("SCRATCH_PAD_DIR");
+            var scratchPadDir = configManager.GetValue("ISOLATION_AREA");
             if (string.IsNullOrEmpty(scratchPadDir))
             {
-                throw new Exception("SCRATCH_PAD_DIR environment variable not set.");
+                throw new Exception("ISOLATION_AREA environment variable not set.");
             }
             _memoryManager = memoryManager;
             _scratchPadDir = scratchPadDir;

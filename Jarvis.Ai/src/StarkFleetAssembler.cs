@@ -20,9 +20,9 @@ public static class StarkFleetAssembler
     /// </summary>
     /// <param name="services">The IServiceCollection to which services are added.</param>
     /// <returns>The updated IServiceCollection.</returns>
-    public static IServiceCollection AssembleJarvisSystems(this IServiceCollection services, Microsoft.Extensions.Configuration.IConfiguration _configuration)
+    public static IServiceCollection AssembleJarvisSystems(this IServiceCollection services, IJarvisConfigManager _configuration)
     {
-        var transcriberType = _configuration.GetValue<string>("LLM_TYPE") ?? "ollama";
+        var transcriberType = _configuration.GetValue("LLM_TYPE") ?? "ollama";
 
         switch (transcriberType)
         {

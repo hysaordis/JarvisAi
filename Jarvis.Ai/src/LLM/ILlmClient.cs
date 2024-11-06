@@ -1,6 +1,6 @@
 ﻿using Newtonsoft.Json;
 
-namespace Jarvis.Ai
+namespace Jarvis.Ai.LLM
 {
     public interface ILlmClient
     {

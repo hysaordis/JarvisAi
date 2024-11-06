@@ -1,9 +1,10 @@
-﻿using NAudio.Wave;
+﻿using System.Text;
 using AssemblyAI;
 using AssemblyAI.Transcripts;
-using System.Text;
-using Jarvis.Ai.Features.AudioProcessing;
 using Jarvis.Ai.Interfaces;
+using NAudio.Wave;
+
+namespace Jarvis.Ai.Features.AudioProcessing;
 
 public sealed class AssemblyAITranscriber : ITranscriber, IDisposable
 {
@@ -41,7 +42,7 @@ public sealed class AssemblyAITranscriber : ITranscriber, IDisposable
     /// Default audio input device number.
     /// 0 typically represents the default system recording device.
     /// </summary>
-    private const int DEVICE_NUMBER = 1;
+    private const int DEVICE_NUMBER = -1;
 
     /// <summary>
     /// Configuration key for AssemblyAI API key.
@@ -144,11 +145,21 @@ public sealed class AssemblyAITranscriber : ITranscriber, IDisposable
         var apiKey = configManager.GetValue(API_KEY_CONFIG_NAME)
                      ?? throw new ArgumentNullException(API_KEY_CONFIG_NAME);
 
+        // Get configured device number or use default
+        var deviceNumber = int.Parse(configManager.GetValue("AUDIO_DEVICE_NUMBER") ?? "-1");
+
         _assemblyAIClient = new AssemblyAIClient(apiKey);
         _audioBuffer = new RingBuffer<float>(MAX_QUEUE_SIZE);
         _transcriptionBuilder = new StringBuilder();
         _tempDirectory = Path.Combine(Path.GetTempPath(), "AssemblyAITranscriber");
         Directory.CreateDirectory(_tempDirectory);
+
+        _waveIn = new WaveInEvent
+        {
+            WaveFormat = new WaveFormat(SAMPLE_RATE, BITS_PER_SAMPLE, CHANNELS),
+            BufferMilliseconds = BUFFER_MILLISECONDS,
+            DeviceNumber = deviceNumber
+        };
     }
 
     public Task InitializeAsync(CancellationToken cancellationToken)

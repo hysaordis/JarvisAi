@@ -60,10 +60,10 @@
     "windows": [
       {
         "fullscreen": false,
-        "height": 230,
-        "width": 180,
+        "height": 500,
+        "width": 500,
         "resizable": false,
-        "title": "voice-interface-app",
+        "title": "Alita Assistant",
         "transparent": true,
         "decorations": false,
         "alwaysOnTop": true,

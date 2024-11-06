@@ -20,10 +20,10 @@ public class OpenAiLlmClient : ILlmClient
 
     public OpenAiLlmClient(IJarvisConfigManager configManager, IStarkArsenal starkArsenal, IJarvisLogger logger, IConversationStore conversationStore)
     {
-        var key = configManager.GetValue("OPENAI_API_KEY");
+        var key = configManager.GetValue("OPENAI_KEY");
         if (string.IsNullOrEmpty(key))
         {
-            throw new Exception("OPENAI_API_KEY environment variable not set.");
+            throw new Exception("OPENAI_KEY environment variable not set.");
         }
         _apiKey = key;
         _starkArsenal = starkArsenal;

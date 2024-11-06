@@ -1,6 +1,7 @@
 ﻿using Jarvis.Ai.Common.Settings;
 using Jarvis.Ai.Features.StarkArsenal.ModuleAttributes;
 using Jarvis.Ai.Interfaces;
+using Jarvis.Ai.LLM;
 using Jarvis.Ai.Models;
 
 namespace Jarvis.Ai.Features.StarkArsenal.Modules;
@@ -34,7 +35,7 @@ public class DiscussFileJarvisModule : BaseJarvisModule
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            string? scratchPadDir = _jarvisConfigManager.GetValue("SCRATCH_PAD_DIR");
+            string? scratchPadDir = _jarvisConfigManager.GetValue("ISOLATION_AREA");
             string focusFile = _starkProtocols.GetFocusFile();
             string? filePath;
 

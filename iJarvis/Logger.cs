@@ -1,6 +1,5 @@
-﻿using Jarvis.Ai.Interfaces;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
+﻿using Jarvis.Ai.Core.Events;
+using Jarvis.Ai.Interfaces;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Logging.Console;
 using System.Text.Json;
@@ -16,6 +15,9 @@ public class CustomConsoleFormatter : ConsoleFormatter
     {
         string message = logEntry.Formatter(logEntry.State, logEntry.Exception);
         textWriter.WriteLine(message);
+        
+        var logEvent = new LogEvent(message, logEntry.LogLevel);
+        EventBus.Instance.Publish(logEvent);
     }
 }
 public class Logger : IJarvisLogger

@@ -20,8 +20,8 @@ public class AudioOutputModule : IAudioOutputModule
     {
         _jarvisLogger = jarvisLogger;
         _httpClient = new HttpClient();
-        _apiKey = configManager.GetValue("OPENAI_API_KEY")
-                  ?? throw new ArgumentNullException("OPENAI_API_KEY is not configured");
+        _apiKey = configManager.GetValue("OPENAI_KEY")
+                  ?? throw new ArgumentNullException("OPENAI_KEY is not configured");
         _defaultVoice = configManager.GetValue("OPENAI_TTS_VOICE") ?? "nova";
 
         _jarvisLogger.LogDeviceStatus("initialized", $"Audio module ready with voice: {_defaultVoice}");

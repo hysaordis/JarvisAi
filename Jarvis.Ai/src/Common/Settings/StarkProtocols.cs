@@ -2,46 +2,14 @@
 using Jarvis.Ai.Interfaces;
 
 namespace Jarvis.Ai.Common.Settings;
-public static class AI_INSTRUCTIONS
+
+public class AIInstructionsConfig
 {
-    public const string CORE_INSTRUCTIONS = @"
-You are Alita, an AI assistant. Reply briefly and clearly.
+    public string[] CORE_INSTRUCTIONS { get; set; } = Array.Empty<string>();
 
-KEY BEHAVIORS:
-1. Always use available tools when needed
-2. Only suggest tools that actually exist in the system
-3. Keep responses short and clear
-4. Ask for clarification if needed
-
-TOOL USAGE:
-1. Check if tool exists before suggesting it
-2. Use tools for specific tasks
-3. Report tool results clearly
-4. If tool fails, say so directly
-
-COMMUNICATION:
-1. Short, clear responses
-2. Simple explanations
-3. Say when you don't know
-4. Confirm task completion
-
-Remember: Only use tools that are actually available in the system!";
-
-    public const string RESPONSE_FORMAT = @"
-KEEP RESPONSES SIMPLE:
-- Short confirmation: 'Done! I've set that up for you.'
-- Tool usage: 'Using [tool] to help you.'
-- Error: 'Sorry, that didn't work because...'";
-
-    public const string ERROR_HANDLING = @"
-WHEN ERRORS HAPPEN:
-1. Say what went wrong
-2. Suggest a working alternative
-3. Ask for guidance if stuck";
-
-    public static string GetCompleteInstructions()
+    public string GetFormattedInstructions()
     {
-        return $"{CORE_INSTRUCTIONS}\n\n{RESPONSE_FORMAT}\n\n{ERROR_HANDLING}";
+        return string.Join("\n", CORE_INSTRUCTIONS);
     }
 }
 
@@ -55,9 +23,12 @@ public class StarkProtocols
     public const double SilenceThreshold = 0.5;
     public const int SilenceDurationMs = 700;
     private readonly Dictionary<string, object>? Personalization;
+    private readonly AIInstructionsConfig _aiInstructions;
 
     public StarkProtocols(IJarvisConfigManager jarvisConfigManager)
     {
+        _aiInstructions = jarvisConfigManager.GetSection<AIInstructionsConfig>("AI_INSTRUCTIONS") ?? new AIInstructionsConfig();
+
         string? personalizationFile = jarvisConfigManager.GetValue("PERSONALIZATION_FILE");
         if (File.Exists(personalizationFile))
         {
@@ -75,8 +46,13 @@ public class StarkProtocols
             HumanName = "User";
         }
 
-        SessionInstructions = $"You are {AiAssistantName}, the AI assistant to {HumanName}." +
-                              $"{AI_INSTRUCTIONS.GetCompleteInstructions()}";
+        SessionInstructions = $"You are {AiAssistantName}, the AI assistant to {HumanName}.\n" +
+                            $"{GetCompleteInstructions()}";
+    }
+
+    private string GetCompleteInstructions()
+    {
+        return _aiInstructions.GetFormattedInstructions();
     }
 
     public List<string>? GetBrowserUrls()

@@ -12,6 +12,18 @@
 		<PublishTrimmed>false</PublishTrimmed>
 		<!-- Add JSON trimming configuration -->
 		<JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
+		<!-- Or if you want to keep trimming, add this: -->
+		<EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+		<IsTrimmable>true</IsTrimmable>
+		<AssemblyName>iJarvis</AssemblyName>
+		<RuntimeIdentifier>win-x64</RuntimeIdentifier>
+		<ServerGarbageCollection>true</ServerGarbageCollection>
+		<ConfigurationDirectory>$(ProgramData)\iJarvis</ConfigurationDirectory>
+		<UseWindowsService>true</UseWindowsService>
+		<WindowsServiceName>iJarvis</WindowsServiceName>
+		<EnableDefaultContentItems>false</EnableDefaultContentItems>
+		<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+		<IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(OS)' == 'Windows_NT'">
@@ -26,31 +38,19 @@
 		<ProjectReference Include="..\Jarvis.Ai\Jarvis.Ai.csproj" />
 	</ItemGroup>
 
+	<!-- Solo i file di configurazione necessari -->
 	<ItemGroup>
-		<None Update="config\active_memory.json">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</None>
-		<None Update="config\client_secret_307889607633-s2kv6e043v2h6klasuj12ho7qent9ejq.apps.googleusercontent.com.json">
+		<Content Include="appsettings.json">
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
-		</None>
-		<None Update="config\client_secret_307889607633-uap5g98du4bg2dd5dov1skan4rl868id.apps.googleusercontent.com.json">
+		</Content>
+		<Content Include="appsettings.Development.json">
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
-		</None>
-		<None Update="config\personalization.json">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</None>
-		<None Update="appsettings.json">
-			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
-		</None>
-		<None Update="appsettings.local.json">
-			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
-		</None>
+		</Content>
 	</ItemGroup>
 
+	<!-- Esclude esplicitamente i file .cs dalla copia -->
 	<ItemGroup>
-		<None Update="scripts\**\*.*">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</None>
+		<Content Remove="**\*.cs" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -59,6 +59,25 @@
 		<PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.0" Condition="'$(OS)' == 'Windows_NT'" />
 		<PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
 		<PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="8.0.0" />
+		<PackageReference Include="Microsoft.Extensions.Logging.EventLog" Version="8.0.0" />
+		<PackageReference Include="Whisper.net.Runtime" Version="1.5.0" />
+		<!-- Aggiungi altre dipendenze qui -->
+	</ItemGroup>
+
+	<ItemGroup>
+		<RuntimeHostConfigurationOption Include="System.GC.Server" Value="true" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<None Update="active_memory.json">
+		  <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+		</None>
+		<None Update="client_secret.json">
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+		</None>
+		<None Update="personalization.json">
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+		</None>
 	</ItemGroup>
 
 </Project>
